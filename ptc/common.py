@@ -1,5 +1,4 @@
 from packet import PTCPacket
-from constants import MAX_SEQ
 
 
 class PacketBuilder(object):
@@ -29,38 +28,4 @@ class PacketBuilder(object):
         if ack is not None:
             packet.set_ack_number(ack)            
         
-        return packet        
-        
-        
-class ProtocolControlBlock(object):
-    
-    def __init__(self, address, port):
-        self.src_address = address
-        self.src_port = port
-        self.dst_address = None
-        self.dst_port = None
-        self.modulus = MAX_SEQ
-        
-    def modular_sum(self, a, b):
-        return (a + b) % (self.modulus + 1)
-    
-    def modular_increment(self, a):
-        return self.modular_sum(a, 1)        
-        
-    def get_source_address(self):
-        return self.src_address
-    
-    def get_source_port(self):
-        return self.src_port
-    
-    def get_destination_address(self):
-        return self.dst_address
-    
-    def get_destination_port(self):
-        return self.dst_port    
-    
-    def set_destination_address(self, address):
-        self.dst_address = address
-        
-    def set_destination_port(self, port):
-        self.dst_port = port    
+        return packet   

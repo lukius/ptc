@@ -61,7 +61,7 @@ void proto_reg_handoff_ptc(void)
 
 	if (!initialized) {
 		ptc_handle = create_dissector_handle(dissect_ptc, proto_ptc);
-		dissector_add("ip.proto", ptc_proto_num, ptc_handle);
+		dissector_add_uint("ip.proto", ptc_proto_num, ptc_handle);
 	}
 
 }

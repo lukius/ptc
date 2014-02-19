@@ -1,24 +1,23 @@
 import socket
 
 from packet_parser import PacketParser
-from constants import PROTOCOL_NUMBER
+from constants import PROTOCOL_NUMBER, NULL_ADDRESS
 
 
 class Soquete(object):
     
     MAX_SIZE = 65535
     
-    def __init__(self, address, port):
+    def __init__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, PROTOCOL_NUMBER)
         self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
-        self.port = port
-        self.address = address
-        self.bind()
         
     def close(self):
         self.socket.close()  
         
-    def bind(self):
+    def bind(self, address, port):
+        self.address = address
+        self.port = port
         self.socket.bind((self.address, self.port))
         
     def send(self, packet):
@@ -43,4 +42,4 @@ class Soquete(object):
     def is_for_me(self, packet):
         address = packet.get_destination_ip()
         port = packet.get_destination_port()
-        return address == self.address and port == self.port
+        return (self.address == NULL_ADDRESS or address == self.address) and port == self.port
