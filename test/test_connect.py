@@ -33,4 +33,25 @@ class ConnectTest(PTCTestCase):
         self.assertEquals(server.protocol.state, ptc.constants.ESTABLISHED)
     
     def test_client_connection(self):
-        pass
+        # 1. Create a client instance
+        client = self.launch_client()
+        
+        # 2. Receive SYN
+        syn_packet = self.receive()
+        received_seq_number = syn_packet.get_seq_number()
+        self.assertIn(SYNFlag, syn_packet)
+        self.assertEquals(client.protocol.state, ptc.constants.SYN_SENT)
+        
+        # 3. Send SYN/ACK
+        seq_number = 1111
+        syn_ack_packet = self.packet_builder.build(flags=[SYNFlag, ACKFlag],
+                                                   seq=seq_number,
+                                                   ack=received_seq_number)
+        self.send(syn_ack_packet)
+        
+        # 4. Receive ACK and assert that the connection is established
+        ack_packet = self.receive()
+        received_ack_number = ack_packet.get_ack_number()
+        self.assertIn(ACKFlag, ack_packet)
+        self.assertEquals(received_ack_number, seq_number)
+        self.assertEquals(client.protocol.state, ptc.constants.ESTABLISHED)        

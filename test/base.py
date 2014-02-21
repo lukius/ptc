@@ -33,20 +33,19 @@ class PTCTestCase(unittest.TestCase):
     DEFAULT_SOURCE_PORT = 7777
     DEFAULT_DESTINATION_PORT = 8888
     
-    def __init__(self, *args, **kwargs):
-        unittest.TestCase.__init__(self, *args, **kwargs)
-        self.control_block = self
-        self.patch_socket()
-        self.patch_threads()
-        
     def setUp(self):
+        self.control_block = self
         self.network = Network()
         self.packet_builder = ptc.common.PacketBuilder(self)
         self.end_event = threading.Event()
+        self.patch_socket()
+        self.patch_threads()
         self.set_up()
         
     def tearDown(self):
         self.end_event.set()
+        self.restore_socket()
+        self.restore_threads()
         self.tear_down()
         
     def set_up(self):
@@ -82,51 +81,76 @@ class PTCTestCase(unittest.TestCase):
         launched_event.wait()
         return ptc_socket
     
+    def launch_client(self):
+        def run(socket):
+            socket.connect((ptc.constants.NULL_ADDRESS,
+                            self.DEFAULT_DESTINATION_PORT))
+            self.end_event.wait()
+            socket.close()
+        
+        ptc_socket = ptc.Socket()
+        thread = threading.Thread(target=run, args=(ptc_socket,))
+        thread.start()
+        return ptc_socket    
+    
     def patch_socket(self):
+        def custom_send(_self, packet):
+            self.network.send(packet)
+
+        def custom_receive(_self, timeout=None):
+            return self.network.receive(timeout)
+            
         def dummy_method(_self, *args, **kwargs):
             pass
         
         socket_class = ptc.soquete.Soquete
-        setattr(socket_class, 'send', self.custom_socket_send)
-        setattr(socket_class, 'receive', self.custom_socket_receive)
+        self.socket_send = getattr(socket_class, 'send')
+        self.socket_receive = getattr(socket_class, 'receive')
+        self.socket_bind = getattr(socket_class, 'bind')
+        self.socket_close = getattr(socket_class, 'close')
+        self.socket_init = getattr(socket_class, '__init__')
+        
+        setattr(socket_class, 'send', custom_send)
+        setattr(socket_class, 'receive', custom_receive)
         setattr(socket_class, 'bind', dummy_method)
         setattr(socket_class, 'close', dummy_method)
-        try:
-            delattr(socket_class, '__init__')
-        except:
-            pass
+        delattr(socket_class, '__init__')
     
     def patch_threads(self):
-        thread_class = ptc.worker.PTCThread
-        custom_init = getattr(self, 'custom_thread_init')
-        bound_custom_init = custom_init.__get__(self, thread_class)
-        setattr(thread_class, '__init__', bound_custom_init)
-    
-        worker_class = ptc.worker.Worker
-        self.work_method = getattr(worker_class, 'work')
         def custom_work(_self):
             try:
                 self.work_method(_self)
             except Exception, e:
                 traceback.print_exc(e)
-                os._exit(1)                
+                os._exit(1)          
+                     
+        def custom_thread_init(_self):
+            superclass = _self.__class__.__base__
+            superclass.__init__(_self)
+            _self.setDaemon(False)
+        
+        thread_class = ptc.worker.PTCThread
+        self.thread_init = getattr(thread_class, '__init__')
+        setattr(thread_class, '__init__', custom_thread_init)
+    
+        worker_class = ptc.worker.Worker
+        self.work_method = getattr(worker_class, 'work')
         setattr(worker_class, 'work', custom_work)
 
-    def custom_work(self):
-        pass
-    
-    def custom_socket_send(self, packet):
-        self.network.send(packet)
-        
-    def custom_socket_receive(self, timeout=None):
-        return self.network.receive(timeout)
-    
-    def custom_thread_init(self):
-        # This will be executed in the context of a PTCThread object.
-        superclass = self.__class__.__base__
-        superclass.__init__(self)
-        self.setDaemon(False)
-        
+    def restore_socket(self):
+        socket_class = ptc.soquete.Soquete
+        setattr(socket_class, 'send', self.socket_send)
+        setattr(socket_class, 'receive', self.socket_receive)
+        setattr(socket_class, 'bind', self.socket_bind)
+        setattr(socket_class, 'close', self.socket_close)
+        setattr(socket_class, '__init__', self.socket_init)
+
+    def restore_threads(self):
+        worker_class = ptc.worker.Worker
+        thread_class = ptc.worker.PTCThread
+        setattr(worker_class, 'work', self.work_method)
+        setattr(thread_class, '__init__', self.thread_init)
+
     def get_source_address(self):
         return ptc.constants.NULL_ADDRESS
     
