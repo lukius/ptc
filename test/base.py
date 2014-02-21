@@ -59,7 +59,8 @@ class PTCTestCase(unittest.TestCase):
         
     def send(self, packet):
         self.network.inject(packet)
-        self.wait(0.1)
+        # This is to give enough time to the protocol to process the packet.
+        time.sleep(0.1)
         
     def receive(self):
         return self.network.get_next()
@@ -81,9 +82,6 @@ class PTCTestCase(unittest.TestCase):
         launched_event.wait()
         return ptc_socket
     
-    def wait(self, seconds):
-        time.sleep(seconds)
-        
     def patch_socket(self):
         def dummy_method(_self, *args, **kwargs):
             pass

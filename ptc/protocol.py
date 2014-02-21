@@ -4,7 +4,6 @@ import threading
 import random
 
 from common import PacketBuilder
-from soquete import Soquete
 from packet import ACKFlag, FINFlag, SYNFlag
 from worker import Kernel
 from buffers import DataBuffer, RetransmissionQueue, NotEnoughDataException
@@ -143,8 +142,8 @@ class PTCProtocol(object):
         self.state = LISTEN
         
     def connect_to(self, address, port):
-        self.kernel.start()
         self.connected_event = threading.Event()
+        self.kernel.start()
         self.control_block.set_destination_address(address)
         self.control_block.set_destination_port(port)
         
@@ -158,9 +157,9 @@ class PTCProtocol(object):
     def accept(self):
         if self.state != LISTEN:
             raise Exception('should listen first')
+        self.connected_event = threading.Event()
         self.kernel.start()
         # No hay mucho por hacer... simplemente esperar a que caiga el SYN del cliente
-        self.connected_event = threading.Event()
         self.connected_event.wait()        
         
     def send(self, data):
@@ -219,9 +218,10 @@ class PTCProtocol(object):
             else:
                 raise Exception('not handled yet')                                    
     
-    def handle_incoaming_on_listen(self, packet):
+    def handle_incoming_on_listen(self, packet):
         seq_number = packet.get_seq_number()
         if SYNFlag in packet:
+            self.state = SYN_RCVD
             self.control_block.set_destination_address(packet.get_source_ip())
             self.control_block.set_destination_port(packet.get_source_port())
             self.control_block.set_receive_seq(seq_number)
@@ -230,7 +230,6 @@ class PTCProtocol(object):
             self.send_packet(syn_ack_packet)
             self.control_block.set_receive_seq(seq_number)
             self.control_block.increment_receive_seq()            
-            self.state = SYN_RCVD
             
     def handle_incoming_on_syn_sent(self, packet):
         if SYNFlag not in packet:

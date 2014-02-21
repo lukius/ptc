@@ -26,7 +26,7 @@ class Soquete(object):
         dst_port = packet.get_destination_port()
         self.socket.sendto(data, (dst_address, dst_port))
         
-    def receive(self, timeout = None):
+    def receive(self, timeout=None):
         should_stop = False
         if timeout is not None and timeout > 0:
             self.socket.settimeout(timeout)

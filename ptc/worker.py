@@ -56,23 +56,28 @@ class Kernel(object):
         self.notify()
 
 
+class PTCThread(threading.Thread):
+    
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.setDaemon(False)
+        
+    def run(self):
+        raise NotImplementedError
+
+
 class Worker(object): 
     
     def __init__(self, kernel):
         self.kernel = kernel
         self.thread = threading.Thread(target=self.work)
-        self.thread.setDaemon(True)
+        self.thread.setDaemon(False)
         self.keep_working = True
         
     def work(self):
-        try:
-            while self.should_work():
-                self.do_work()
-        except Exception, e:
-            print e
-            self.kernel.protocol.connected_event.set()
-        finally:
-            self.end()
+        while self.should_work():
+            self.do_work()
+        self.end()
             
     def do_work(self):
         raise NotImplementedError
