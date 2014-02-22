@@ -3,13 +3,14 @@
 import threading
 import random
 
+import thread
 from common import PacketBuilder
 from packet import ACKFlag, FINFlag, SYNFlag
-from worker import Kernel
 from buffers import DataBuffer, RetransmissionQueue, NotEnoughDataException
 from constants import MIN_PACKET_SIZE, MAX_PACKET_SIZE, CLOSED, SYN_RCVD,\
                       ESTABLISHED, FIN_SENT, SYN_SENT, MAX_SEQ, LISTEN,\
                       SEND_WINDOW, MAX_RETRANSMISSION_ATTEMPTS, RECV_WINDOW
+from soquete import Soquete
 
 
 class PTCControlBlock(object):
@@ -113,8 +114,14 @@ class PTCProtocol(object):
         self.incoming_buffer = DataBuffer()
         self.state = CLOSED
         self.control_block = PTCControlBlock()
-        self.kernel = Kernel(self)
         self.packet_builder = PacketBuilder(self)
+        self.socket = Soquete()
+        self.initialize_threads()
+        
+    def initialize_threads(self):
+        self.packet_sender = thread.PacketSender(self)
+        self.packet_receiver = thread.PacketReceiver(self)
+        self.clock = thread.Clock(self)
     
     def is_connected(self):
         return self.state == ESTABLISHED
@@ -127,14 +134,14 @@ class PTCProtocol(object):
         return packet
         
     def send_packet(self, packet):
-        self.kernel.dispatch_outgoing_packet(packet)
+        self.socket.send(packet)
         
     def send_and_queue_packet(self, packet):
         self.send_packet(packet)
         #self.retransmission_queue.put(packet)
         
     def bind(self, address, port):
-        self.kernel.bind(address, port)
+        self.socket.bind(address, port)
         self.control_block.set_source_address(address)
         self.control_block.set_source_port(port)
     
@@ -143,7 +150,6 @@ class PTCProtocol(object):
         
     def connect_to(self, address, port):
         self.connected_event = threading.Event()
-        self.kernel.start()
         self.control_block.set_destination_address(address)
         self.control_block.set_destination_port(port)
         
@@ -158,13 +164,12 @@ class PTCProtocol(object):
         if self.state != LISTEN:
             raise Exception('should listen first')
         self.connected_event = threading.Event()
-        self.kernel.start()
         # No hay mucho por hacer... simplemente esperar a que caiga el SYN del cliente
         self.connected_event.wait()        
         
     def send(self, data):
         self.outgoing_buffer.put(data)
-        self.kernel.notify()
+        self.packet_sender.notify()
         
     def receive(self, size):
         if self.is_closed() and self.incoming_buffer.empty():
@@ -174,7 +179,10 @@ class PTCProtocol(object):
         if size < MIN_PACKET_SIZE:
             size = MIN_PACKET_SIZE
         data = self.incoming_buffer.sync_get(MIN_PACKET_SIZE, size)
-        return data        
+        return data
+    
+    def tick(self):
+        pass
     
     def handle_outgoing(self):
         while self.control_block.send_allowed():
@@ -185,7 +193,7 @@ class PTCProtocol(object):
             else:
                 packet = self.build_packet(payload=data)
                 # Ajustar variables en el bloque de control
-                self.kernel.dispatch_outgoing_packet(packet)
+                self.send_packet(packet)
                 #self.retransmission_queue.put(packet)
                 
     def handle_timeout(self):
@@ -280,7 +288,13 @@ class PTCProtocol(object):
         self.outgoing_buffer.clear()
         self.retransmission_queue.clear()
         self.retransmission_attempts.clear()
-        self.kernel.stop()
+        self.stop_threads()
         # Esto es por si falló el establecimiento de conexión (para destrabar al thread principal)
         self.connected_event.set()
         self.state = CLOSED
+        
+    def stop_threads(self):
+        self.packet_receiver.stop()
+        self.packet_sender.stop()
+        self.packet_sender.notify()
+        self.clock.stop()

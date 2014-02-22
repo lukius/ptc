@@ -119,23 +119,23 @@ class PTCTestCase(unittest.TestCase):
     def patch_threads(self):
         def custom_work(_self):
             try:
-                self.work_method(_self)
+                self.thread_run(_self)
             except Exception, e:
                 traceback.print_exc(e)
                 os._exit(1)          
                      
-        def custom_thread_init(_self):
-            superclass = _self.__class__.__base__
-            superclass.__init__(_self)
+        def custom_thread_init(_self, protocol):
+            threading.Thread.__init__(_self)
+            _self.protocol = protocol
             _self.setDaemon(False)
+            _self.keep_running = True
+            _self.start()            
         
-        thread_class = ptc.worker.PTCThread
+        thread_class = ptc.thread.PTCThread
         self.thread_init = getattr(thread_class, '__init__')
+        self.thread_run = getattr(thread_class, 'run')
         setattr(thread_class, '__init__', custom_thread_init)
-    
-        worker_class = ptc.worker.Worker
-        self.work_method = getattr(worker_class, 'work')
-        setattr(worker_class, 'work', custom_work)
+        setattr(thread_class, 'run', custom_work)
 
     def restore_socket(self):
         socket_class = ptc.soquete.Soquete
@@ -146,9 +146,8 @@ class PTCTestCase(unittest.TestCase):
         setattr(socket_class, '__init__', self.socket_init)
 
     def restore_threads(self):
-        worker_class = ptc.worker.Worker
-        thread_class = ptc.worker.PTCThread
-        setattr(worker_class, 'work', self.work_method)
+        thread_class = ptc.thread.PTCThread
+        setattr(thread_class, 'run', self.thread_run)
         setattr(thread_class, '__init__', self.thread_init)
 
     def get_source_address(self):
