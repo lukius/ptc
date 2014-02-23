@@ -42,7 +42,6 @@ class PacketTest(unittest.TestCase):
     def test_bytes_from_packet(self):
         packet = self.get_custom_packet()
         packet_bytes = packet.get_bytes()
-        print repr(packet_bytes)
         expected_packet_bytes = self.get_expected_packet_bytes()
         
         ip_id_offset = 4
