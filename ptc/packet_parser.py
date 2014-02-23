@@ -4,10 +4,6 @@ import socket
 from packet import PTCPacket, PTCFlag
 
 
-class InvalidChecksumException(Exception):
-    pass
-    
-
 class PacketParser(object):
     
     SOURCE_IP_OFFSET = 12
@@ -16,9 +12,12 @@ class PacketParser(object):
     
     SOURCE_PORT_OFFSET = 0
     DESTINATION_PORT_OFFSET = 2
-    FLAGS_OFFSET = 4
-    SEQ_NUMBER_OFFSET = 8
-    ACK_NUMBER_OFFSET = 10
+    SEQ_NUMBER_OFFSET = 4
+    ACK_NUMBER_OFFSET = 8
+    FLAGS_OFFSET = 12
+    WINDOW_SIZE_OFFSET = 14
+    
+    PTC_HEADER_DWORDS = 4
     
     def parse_from(self, packet_bytes):
         packet = PTCPacket()        
@@ -31,6 +30,7 @@ class PacketParser(object):
         seq_number = self.parse_seq_number_on(transport_packet_bytes)
         ack_number = self.parse_ack_number_on(transport_packet_bytes)
         flags = self.parse_flags_on(transport_packet_bytes)
+        window_size = self.parse_window_size_on(transport_packet_bytes)
         data = self.parse_data_on(transport_packet_bytes)
 
         packet.set_source_ip(source_ip)
@@ -40,6 +40,7 @@ class PacketParser(object):
         packet.set_seq_number(seq_number)
         packet.set_ack_number(ack_number)
         packet.add_flags(flags)
+        packet.set_window_size(window_size)
         packet.set_payload(data)
         
         return packet
@@ -68,12 +69,16 @@ class PacketParser(object):
                                            self.DESTINATION_PORT_OFFSET)
         
     def parse_seq_number_on(self, packet_bytes):
-        return self.parse_short_from_offset(packet_bytes,
+        return self.parse_long_from_offset(packet_bytes,
                                            self.SEQ_NUMBER_OFFSET)
         
     def parse_ack_number_on(self, packet_bytes):
+        return self.parse_long_from_offset(packet_bytes,
+                                           self.ACK_NUMBER_OFFSET)
+        
+    def parse_window_size_on(self, packet_bytes):
         return self.parse_short_from_offset(packet_bytes,
-                                           self.ACK_NUMBER_OFFSET)        
+                                            self.WINDOW_SIZE_OFFSET)
         
     def parse_flags_on(self, packet_bytes):
         flags_bits = self.get_flags_bits_on(packet_bytes)
@@ -83,13 +88,11 @@ class PacketParser(object):
         return packet_flags
     
     def get_flags_bits_on(self, packet_bytes):
-        flags_int = self.parse_long_from_offset(packet_bytes,
-                                                  self.FLAGS_OFFSET)
-        return (flags_int >> 27)
+        return self.parse_short_from_offset(packet_bytes,
+                                            self.FLAGS_OFFSET)
     
     def parse_data_on(self, packet_bytes):
-        ptc_header_length = 3
-        return packet_bytes[4*ptc_header_length:]
+        return packet_bytes[4*self.PTC_HEADER_DWORDS:]
     
     def parse_ip_header_length_on(self, packet_bytes):
         ihl_byte = packet_bytes[self.IP_HEADER_LENGTH_OFFSET]

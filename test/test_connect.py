@@ -1,9 +1,40 @@
+import threading
+
 import ptc
 from ptc.packet import SYNFlag, ACKFlag
 from base import PTCTestCase
 
 
 class ConnectTest(PTCTestCase):
+
+    def launch_server(self):
+        launched_event = threading.Event()
+        def run(socket):
+            socket.bind((ptc.constants.NULL_ADDRESS,
+                         self.DEFAULT_DESTINATION_PORT))
+            socket.listen()
+            launched_event.set()
+            socket.accept()
+            self.end_event.wait()
+            socket.close()
+        
+        ptc_socket = ptc.Socket()
+        thread = threading.Thread(target=run, args=(ptc_socket,))
+        thread.start()
+        launched_event.wait()
+        return ptc_socket
+    
+    def launch_client(self):
+        def run(socket):
+            socket.connect((ptc.constants.NULL_ADDRESS,
+                            self.DEFAULT_DESTINATION_PORT))
+            self.end_event.wait()
+            socket.close()
+        
+        ptc_socket = ptc.Socket()
+        thread = threading.Thread(target=run, args=(ptc_socket,))
+        thread.start()
+        return ptc_socket
     
     def test_server_connection(self):
         # 1. Create a server instance

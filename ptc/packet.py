@@ -167,6 +167,7 @@ class PTCTransportPacket(object):
         self.destination_port = 0
         self.seq_number = 0
         self.ack_number = 0
+        self.window_size = 0
         self.flags = set()
         self.payload = str()
         self.parent = None
@@ -187,7 +188,10 @@ class PTCTransportPacket(object):
         return self.seq_number
     
     def get_ack_number(self):
-        return self.ack_number    
+        return self.ack_number
+    
+    def get_window_size(self):
+        return self.window_size
     
     def get_payload(self):
         return self.payload
@@ -211,10 +215,13 @@ class PTCTransportPacket(object):
         self.destination_port = port          
     
     def set_seq_number(self, seq_number):
-        self.seq_number = seq_number % 2**16
+        self.seq_number = seq_number % 2**32
         
     def set_ack_number(self, ack_number):
-        self.ack_number = ack_number % 2**16
+        self.ack_number = ack_number % 2**32
+        
+    def set_window_size(self, window_size):
+        self.window_size = window_size % 2**16
         
     def set_payload(self, data):
         self.payload = data
@@ -228,10 +235,12 @@ class PTCTransportPacket(object):
     def get_bytes(self):
         flags_bytes = reduce(lambda value, flag: value ^ flag.get_bits(),
                              self.flags, 0)
-        flags_bytes = flags_bytes << 27
-        seq_plus_ack = (self.seq_number << 16) + self.ack_number
-        header_bytes = struct.pack('!HHLL', self.source_port,
-                                   self.destination_port, flags_bytes, seq_plus_ack)
+        header_bytes = struct.pack('!HHLLHH', self.source_port,
+                                              self.destination_port, 
+                                              self.seq_number,
+                                              self.ack_number,
+                                              flags_bytes,
+                                              self.window_size)
         
         
         return header_bytes + self.payload
@@ -271,6 +280,9 @@ class PTCPacket(object):
     def get_ack_number(self):
         return self.transport_packet.get_ack_number()
     
+    def get_window_size(self):
+        return self.transport_packet.get_window_size()
+    
     def get_payload(self):
         return self.transport_packet.get_payload()
     
@@ -300,6 +312,9 @@ class PTCPacket(object):
         
     def set_ack_number(self, ack_number):
         self.transport_packet.set_ack_number(ack_number)
+        
+    def set_window_size(self, window_size):
+        self.transport_packet.set_window_size(window_size)
     
     def set_payload(self, data):
         self.transport_packet.set_payload(data)
@@ -308,21 +323,24 @@ class PTCPacket(object):
         return self.network_packet.get_bytes()
     
     def __repr__(self):
-        template = 'From: %s\nTo: %s\nSeq: %d\nAck: %d\nFlags: %s\nPayload: %s'
-        from_field = '(%s, %d)' % (self.get_source_ip(), self.get_source_port())
-        destination_field = '(%s, %d)' % (self.get_destination_ip(), self.get_destination_port())
+        template = 'From: %s\nTo: %s\nSeq: %d\nAck: %d\nFlags: %s\nWindow: %s\nPayload: %s'
+        from_field = '(%s, %d)' % (self.get_source_ip(),
+                                   self.get_source_port())
+        destination_field = '(%s, %d)' % (self.get_destination_ip(),
+                                          self.get_destination_port())
         flags = ', '.join(map(lambda flag: flag.name(), self.get_flags()))
         if not flags:
             flags = '<none>'
         seq = self.get_seq_number()
         ack = self.get_ack_number()
+        window = self.get_window_size()
         payload = self.get_payload()
         if not payload:
             payload = '<none>'
-        return template % (from_field, destination_field, seq, ack, flags, payload)
+        return template % (from_field, destination_field, seq, ack, flags,
+                           window, payload)
     
     
-
 class PTCFlag(object):
     
     @classmethod
@@ -362,11 +380,13 @@ class RSTFlag(PTCFlag):
     def get_bits(self):
         return 0x4
     
+    
 class NDTFlag(PTCFlag):
     
     @classmethod
     def get_bits(self):
         return 0x8
+    
     
 class ACKFlag(PTCFlag):
     
