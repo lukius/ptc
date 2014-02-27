@@ -1,11 +1,9 @@
-import threading
-
 import ptc
 from ptc.packet import SYNFlag, ACKFlag
 from base import PTCTestCase
 
 
-class ConnectTest(object):
+class ConnectTest(PTCTestCase):
 
     def test_server_connection(self):
         # 1. Create a server instance
