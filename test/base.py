@@ -1,3 +1,4 @@
+import collections
 import os
 import Queue
 import socket
@@ -30,16 +31,18 @@ class PTCTestSuite(object):
         
 class PTCTestCase(unittest.TestCase):
     
-    DEFAULT_SOURCE_PORT = 7777
-    DEFAULT_DESTINATION_PORT = 8888
+    DEFAULT_SRC_ADDRESS = '192.168.0.101'
+    DEFAULT_DST_ADDRESS = '192.168.0.102'
+    DEFAULT_SRC_PORT = 7777
+    DEFAULT_DST_PORT = 8888
     
     def setUp(self):
         self.control_block = self
         self.network = Network()
-        self.packet_builder = ptc.common.PacketBuilder(self)
         self.end_event = threading.Event()
         self.patch_socket()
         self.patch_threads()
+        self.set_up_packet_builder()
         self.set_up()
         
     def tearDown(self):
@@ -47,6 +50,13 @@ class PTCTestCase(unittest.TestCase):
         self.restore_socket()
         self.restore_threads()
         self.tear_down()
+        
+    def set_up_packet_builder(self):
+        self.packet_builder = ptc.packet_utils.PacketBuilder()
+        self.packet_builder.set_source_address(self.DEFAULT_SRC_ADDRESS)
+        self.packet_builder.set_source_port(self.DEFAULT_SRC_PORT)
+        self.packet_builder.set_destination_port(self.DEFAULT_DST_PORT)
+        self.packet_builder.set_destination_address(self.DEFAULT_DST_ADDRESS)
         
     def set_up(self):
         # This should be overriden for custom test set-up.
@@ -57,20 +67,28 @@ class PTCTestCase(unittest.TestCase):
         pass        
         
     def send(self, packet):
-        self.network.inject(packet)
+        self.network.send(packet)
         # This is to give enough time to the protocol to process the packet.
         time.sleep(0.1)
         
     def receive(self):
-        return self.network.get_next()
+        address = self.DEFAULT_SRC_ADDRESS
+        port = self.DEFAULT_SRC_PORT 
+        return self.network.receive_for(address, port)
     
     def patch_socket(self):
         def custom_send(_self, packet):
             self.network.send(packet)
 
         def custom_receive(_self, timeout=None):
-            return self.network.receive(timeout)
-            
+            address = _self.address
+            port = _self.port
+            return self.network.receive_for(address, port, timeout=timeout)
+        
+        def custom_bind(_self, address, port):
+            _self.address = address
+            _self.port = port
+        
         def dummy_method(_self, *args, **kwargs):
             pass
         
@@ -83,30 +101,30 @@ class PTCTestCase(unittest.TestCase):
         
         setattr(socket_class, 'send', custom_send)
         setattr(socket_class, 'receive', custom_receive)
-        setattr(socket_class, 'bind', dummy_method)
+        setattr(socket_class, 'bind', custom_bind)
         setattr(socket_class, 'close', dummy_method)
         delattr(socket_class, '__init__')
     
     def patch_threads(self):
-        def custom_work(_self):
+        def custom_run(_self):
             try:
                 self.thread_run(_self)
             except Exception, e:
                 traceback.print_exc(e)
-                os._exit(1)          
+                _self.protocol.close()
+                self.network.close()
                      
-        def custom_thread_init(_self, protocol):
+        def custom_init(_self, protocol):
             threading.Thread.__init__(_self)
             _self.protocol = protocol
             _self.setDaemon(False)
             _self.keep_running = True
-            _self.start()            
         
         thread_class = ptc.thread.PTCThread
         self.thread_init = getattr(thread_class, '__init__')
         self.thread_run = getattr(thread_class, 'run')
-        setattr(thread_class, '__init__', custom_thread_init)
-        setattr(thread_class, 'run', custom_work)
+        setattr(thread_class, '__init__', custom_init)
+        setattr(thread_class, 'run', custom_run)
 
     def restore_socket(self):
         socket_class = ptc.soquete.Soquete
@@ -120,37 +138,77 @@ class PTCTestCase(unittest.TestCase):
         thread_class = ptc.thread.PTCThread
         setattr(thread_class, 'run', self.thread_run)
         setattr(thread_class, '__init__', self.thread_init)
-
-    def get_source_address(self):
-        return ptc.constants.NULL_ADDRESS
-    
-    def get_source_port(self):
-        return self.DEFAULT_SOURCE_PORT
-    
-    def get_destination_port(self):
-        return self.DEFAULT_DESTINATION_PORT    
-    
-    def get_destination_address(self):
-        return ptc.constants.NULL_ADDRESS    
         
+    def launch_server(self, address=None, port=None):
+        launched_event = threading.Event()
+        if address is None:
+            address = self.DEFAULT_DST_ADDRESS
+        if port is None:
+            port = self.DEFAULT_DST_PORT
+            
+        def run(socket):
+            socket.bind((address, port))
+            socket.listen()
+            launched_event.set()
+            socket.accept()
+            self.end_event.wait()
+            socket.close()
+        
+        ptc_socket = ptc.Socket()
+        thread = threading.Thread(target=run, args=(ptc_socket,))
+        thread.start()
+        launched_event.wait()
+        return ptc_socket
+    
+    def launch_client(self, address=None, port=None):
+        if address is None:
+            address = self.DEFAULT_DST_ADDRESS
+        if port is None:
+            port = self.DEFAULT_DST_PORT
+                    
+        def run(socket):
+            socket.bind((address, port))
+            socket.connect((self.DEFAULT_SRC_ADDRESS, self.DEFAULT_SRC_PORT))
+            self.end_event.wait()
+            socket.close()
+        
+        ptc_socket = ptc.Socket()
+        thread = threading.Thread(target=run, args=(ptc_socket,))
+        thread.start()
+        return ptc_socket
+
         
 class Network(object):
     
     def __init__(self):
-        self.sent_packets = Queue.Queue()
-        self.injected_packets = Queue.Queue()
+        self.channels = collections.defaultdict(Queue.Queue)
+        self.channels_lock = threading.Lock()
+        self.is_closed = False
+        
+    def close(self):
+        for channel in self.channels.values():
+            channel.put(None)
+        self.is_closed = True
+        
+    def get_channel_for(self, address, port):
+        with self.channels_lock:
+            key = (address, port)
+            return self.channels[key] 
+        
+    def get_channel_for_destination(self, packet):
+        address = packet.get_destination_ip()
+        port = packet.get_destination_port()
+        return self.get_channel_for(address, port)
         
     def send(self, packet):
-        self.sent_packets.put(packet)
+        channel = self.get_channel_for_destination(packet)
+        channel.put(packet)
         
-    def receive(self, timeout=None):
+    def receive_for(self, address, port, timeout=None):
+        if self.is_closed:
+            return None
+        channel = self.get_channel_for(address, port)
         try:
-            return self.injected_packets.get(timeout=timeout)
+            return channel.get(timeout=timeout)
         except Queue.Empty:
             raise socket.timeout
-    
-    def inject(self, packet):
-        self.injected_packets.put(packet)
-        
-    def get_next(self, timeout=None):
-        return self.sent_packets.get(timeout=timeout)

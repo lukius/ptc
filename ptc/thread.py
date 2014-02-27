@@ -11,7 +11,6 @@ class PTCThread(threading.Thread):
         self.protocol = protocol
         self.setDaemon(True)
         self.keep_running = True
-        self.start()
         
     def run(self):
         while self.should_run():

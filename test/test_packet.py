@@ -1,7 +1,7 @@
 import unittest
 
 from ptc.packet import PTCPacket, SYNFlag, ACKFlag
-from ptc.packet_parser import PacketParser
+from ptc.packet_utils import PacketDecoder
 
 
 class PacketTest(unittest.TestCase):
@@ -35,8 +35,8 @@ class PacketTest(unittest.TestCase):
         return packet_bytes
     
     def build_packet_from_bytes(self, packet_bytes):
-        packet_parser = PacketParser()
-        packet = packet_parser.parse_from(packet_bytes)
+        packet_decoder = PacketDecoder()
+        packet = packet_decoder.decode(packet_bytes)
         return packet
 
     def test_bytes_from_packet(self):

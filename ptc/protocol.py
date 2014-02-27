@@ -3,32 +3,33 @@
 import threading
 import random
 
+import buffers
+import packet_utils
+import soquete
 import thread
-from common import PacketBuilder
+
 from packet import ACKFlag, FINFlag, SYNFlag
-from buffers import DataBuffer, RetransmissionQueue, NotEnoughDataException
 from constants import MIN_PACKET_SIZE, MAX_PACKET_SIZE, CLOSED, SYN_RCVD,\
                       ESTABLISHED, FIN_SENT, SYN_SENT, MAX_SEQ, LISTEN,\
-                      SEND_WINDOW, MAX_RETRANSMISSION_ATTEMPTS, RECV_WINDOW
-from soquete import Soquete
+                      SEND_WINDOW, MAX_RETRANSMISSION_ATTEMPTS, RECV_WINDOW,\
+                      RECEIVE_BUFFER_SIZE
 
 
 class PTCControlBlock(object):
     
-    def __init__(self):
-        self.dst_address = None
-        self.dst_port = None
-        self.modulus = MAX_SEQ
-        # Próximo SEQ a enviar
-        self.send_seq = random.randint(1, MAX_SEQ)
-        # Tamaño de la ventana de emisión
-        self.send_window = SEND_WINDOW
-        # Límite inferior de la ventana (i.e., unacknowledged)
-        self.window_lo = self.send_seq
-        # Límite superior de la ventana
-        self.window_hi = self.modular_sum(self.window_lo, self.send_window)
-        self.receive_seq = 0
-        self.receive_window = RECV_WINDOW        
+    def __init__(self, send_seq, receive_seq, window_size):
+        self.iss = send_seq
+        self.irs = receive_seq
+        self.snd_wnd = window_size
+        self.snd_nxt = self.iss
+        self.snd_una = self.iss
+        self.rcv_nxt = self.irs
+        self.rcv_wnd = RECEIVE_BUFFER_SIZE
+        self.snd_wl1 = self.irs
+        self.snd_wl2 = self.iss
+        
+        self.in_buffer = buffers.DataBuffer(size=RECEIVE_BUFFER_SIZE)
+        self.out_buffer = buffers.DataBuffer()
         
     def modular_sum(self, a, b):
         return (a + b) % (self.modulus + 1)
@@ -36,92 +37,106 @@ class PTCControlBlock(object):
     def modular_increment(self, a):
         return self.modular_sum(a, 1)        
         
-    def get_source_address(self):
-        return self.src_address
+    def get_snd_nxt(self):
+        return self.snd_nxt
     
-    def get_source_port(self):
-        return self.src_port
+    def get_snd_una(self):
+        return self.snd_una    
     
-    def get_destination_address(self):
-        return self.dst_address
+    def get_snd_wnd(self):
+        return self.snd_wnd
     
-    def get_destination_port(self):
-        return self.dst_port
+    def get_rcv_nxt(self):
+        return self.rcv_nxt
     
-    def set_source_address(self, address):
-        self.src_address = address
+    def get_rcv_wnd(self):
+        return self.rcv_wnd
+    
+    def get_iss(self):
+        return self.iss
+    
+    def get_irs(self):
+        return self.irs
         
-    def set_source_port(self, port):
-        self.src_port = port
-    
-    def set_destination_address(self, address):
-        self.dst_address = address
+    def process_incoming(self, packet):
+        self.process_payload(packet)
+        self.process_ack(packet)
         
-    def set_destination_port(self, port):
-        self.dst_port = port    
+    def process_payload(self, packet):    
+        if self.payload_is_accepted(packet):
+            seq_number = packet.get_seq_number()
+            payload = packet.get_payload()
+            lower = max(self.rcv_nxt, seq_number)
+            higher = min(self.rcv_nxt + self.rcv_wnd, seq_number + len(payload))
+            self.in_buffer[lower:higher] = payload
     
-    def get_send_seq(self):
-        return self.send_seq
-    
-    def get_send_window(self):
-        return self.send_window
-    
-    def get_receive_seq(self):
-        return self.receive_seq
-    
-    def get_receive_window(self):
-        return self.receive_window
-    
-    def set_receive_seq(self, seq_number):
-        self.receive_seq = seq_number
+    def process_ack(self, packet):
+        ack_number = packet.get_ack_number()
+        if self.ack_is_accepted(ack_number):
+            self.snd_una = ack_number
+            # TODO: Remove from retransmission queue
+            self.update_window(packet)
         
-    def increment_receive_seq(self):
-        self.receive_seq = self.modular_increment(self.receive_seq)    
-        
-    def increment_send_seq(self):
-        self.send_seq = self.modular_increment(self.send_seq)
+    def ack_is_accepted(self, ack_number):
+        # TODO: modular arithmetic
+        return self.snd_una <= ack_number <= self.snd_nxt
     
-    # Responde True sii ack_number cae dentro de la ventana deslizante.    
-    def accepts(self, ack_number):
-        if ack_number >= self.window_lo and ack_number <= self.window_hi:
-            return True
-        if self.window_hi < self.window_lo and\
-           (ack_number >= self.window_lo or ack_number <= self.window_hi):
-            return True
-        return False
+    def payload_is_accepted(self, packet):
+        first_byte = packet.get_seq_number()
+        last_byte = first_byte + len(packet.get_payload()) - 1
+        first_ok =  self.rcv_nxt <= first_byte <= self.rcv_nxt + self.rcv_wnd
+        last_ok = self.rcv_nxt <= last_byte <= self.rcv_nxt + self.rcv_wnd
+        return last_byte >= first_byte and (first_ok or last_ok)
     
-    # A partir de un ack_number aceptado, ajusta los límites de la ventana
-    def adjust_window_with(self, ack_number):
-        if self.accepts(ack_number):
-            self.window_lo = self.modular_increment(ack_number)
-            self.window_hi = self.modular_sum(self.window_lo, self.send_window)
+    def update_window(self, packet):
+        seq_number = packet.get_seq_number()
+        ack_number = packet.get_ack_number()
+        if self.snd_wl1 < seq_number or \
+           (self.snd_wl1 == seq_number and self.snd_wl2 <= ack_number):
+            self.snd_wnd = packet.get_window_size()
+            self.wl1 = seq_number
+            self.wl2 = ack_number
     
-    # Responde True sii la ventana de emisión no está saturada.
-    def send_allowed(self):
-        if self.window_lo <= self.window_hi:
-            return self.send_seq < self.window_hi
-        else:
-            return self.send_seq >= self.window_lo or\
-                   self.send_seq < self.window_hi
+    def bytes_allowed(self):
+        lower = 0
+        higher = self.snd_una + self.snd_wnd - self.snd_nxt
+        return self.out_buffer[lower:higher]
+    
+    def to_out_buffer(self, data):
+        self.out_buffer.put(data)    
+    
+    def from_in_buffer(self, size):
+        pass
+    
         
 
 class PTCProtocol(object):
     
     def __init__(self):
-        self.retransmission_queue = RetransmissionQueue(self)
         self.retransmission_attempts = dict()
-        self.outgoing_buffer = DataBuffer()
-        self.incoming_buffer = DataBuffer()
+        self.outgoing_buffer = buffers.DataBuffer()
+        self.incoming_buffer = buffers.DataBuffer()
         self.state = CLOSED
         self.control_block = PTCControlBlock()
-        self.packet_builder = PacketBuilder(self)
-        self.socket = Soquete()
+        self.packet_builder = packet_utils.PacketBuilder()
+        self.socket = soquete.Soquete()
         self.initialize_threads()
         
     def initialize_threads(self):
         self.packet_sender = thread.PacketSender(self)
         self.packet_receiver = thread.PacketReceiver(self)
         self.clock = thread.Clock(self)
+        
+    def start_threads(self):
+        self.packet_receiver.start()
+        self.packet_sender.start()
+        self.clock.start()
+        
+    def stop_threads(self):
+        self.packet_receiver.stop()
+        self.packet_sender.stop()
+        self.packet_sender.notify()
+        self.clock.stop()        
     
     def is_connected(self):
         return self.state == ESTABLISHED
@@ -140,18 +155,22 @@ class PTCProtocol(object):
         self.send_packet(packet)
         #self.retransmission_queue.put(packet)
         
+    def set_destination_on_packet_builder(self, address, port):
+        self.packet_builder.set_destination_address(address)
+        self.packet_builder.set_destination_port(port)        
+        
     def bind(self, address, port):
         self.socket.bind(address, port)
-        self.control_block.set_source_address(address)
-        self.control_block.set_source_port(port)
+        self.packet_builder.set_source_address(address)
+        self.packet_builder.set_source_port(port)
     
     def listen(self):
         self.state = LISTEN
         
     def connect_to(self, address, port):
         self.connected_event = threading.Event()
-        self.control_block.set_destination_address(address)
-        self.control_block.set_destination_port(port)
+        self.set_destination_on_packet_builder(address, port)
+        self.start_threads()
         
         # Mandamos el SYN y luego hay que aguardar por el ACK
         syn_packet = self.build_packet(flags=[SYNFlag])
@@ -164,11 +183,12 @@ class PTCProtocol(object):
         if self.state != LISTEN:
             raise Exception('should listen first')
         self.connected_event = threading.Event()
+        self.start_threads()
         # No hay mucho por hacer... simplemente esperar a que caiga el SYN del cliente
         self.connected_event.wait()        
         
     def send(self, data):
-        self.outgoing_buffer.put(data)
+        self.control_block.to_out_buffer(data)
         self.packet_sender.notify()
         
     def receive(self, size):
@@ -188,27 +208,13 @@ class PTCProtocol(object):
         while self.control_block.send_allowed():
             try:
                 data = self.outgoing_buffer.get(MIN_PACKET_SIZE, MAX_PACKET_SIZE)
-            except NotEnoughDataException:
+            except buffers.NotEnoughDataException:
                 break
             else:
                 packet = self.build_packet(payload=data)
                 # Ajustar variables en el bloque de control
                 self.send_packet(packet)
                 #self.retransmission_queue.put(packet)
-                
-    def handle_timeout(self):
-        new_queue = RetransmissionQueue(self)
-        for packet in self.retransmission_queue:
-            seq_number = packet.get_seq_number()
-            attempts = 1 + self.retransmission_attempts.setdefault(seq_number, 0)
-            if attempts > MAX_RETRANSMISSION_ATTEMPTS:
-                self.error = 'a packet exceeded maximum number of retransmissions'
-                self.shutdown()
-                return
-            self.retransmission_attempts[seq_number] = attempts
-            self.send_packet(packet)
-            new_queue.put(packet)
-        self.retransmission_queue = new_queue
     
     def handle_incoming(self, packet):
         if self.state == LISTEN:
@@ -230,8 +236,8 @@ class PTCProtocol(object):
         seq_number = packet.get_seq_number()
         if SYNFlag in packet:
             self.state = SYN_RCVD
-            self.control_block.set_destination_address(packet.get_source_ip())
-            self.control_block.set_destination_port(packet.get_source_port())
+            self.set_destination_on_packet_builder(packet.get_source_ip(),
+                                                   packet.get_source_port())
             self.control_block.set_receive_seq(seq_number)
             syn_ack_packet = self.build_packet(flags=[SYNFlag, ACKFlag])
             syn_ack_packet.set_ack_number(packet.get_seq_number())
@@ -292,9 +298,3 @@ class PTCProtocol(object):
         # Esto es por si falló el establecimiento de conexión (para destrabar al thread principal)
         self.connected_event.set()
         self.state = CLOSED
-        
-    def stop_threads(self):
-        self.packet_receiver.stop()
-        self.packet_sender.stop()
-        self.packet_sender.notify()
-        self.clock.stop()

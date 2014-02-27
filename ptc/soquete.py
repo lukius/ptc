@@ -1,6 +1,6 @@
 import socket
 
-from packet_parser import PacketParser
+from ptc.packet_utils import PacketDecoder
 from constants import PROTOCOL_NUMBER, NULL_ADDRESS
 
 
@@ -34,7 +34,7 @@ class Soquete(object):
             self.socket.settimeout(None)
         while not should_stop:
             packet_bytes, _ = self.socket.recvfrom(self.MAX_SIZE)
-            packet = PacketParser().parse_from(packet_bytes)
+            packet = PacketDecoder().decode(packet_bytes)
             if self.is_for_me(packet):
                 should_stop = True
         return packet
