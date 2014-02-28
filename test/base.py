@@ -37,9 +37,9 @@ class PTCTestCase(unittest.TestCase):
     DEFAULT_DST_PORT = 8888
     
     def setUp(self):
-        self.control_block = self
         self.network = Network()
         self.end_event = threading.Event()
+        self.threads = list()
         self.patch_socket()
         self.patch_threads()
         self.set_up_packet_builder()
@@ -47,6 +47,7 @@ class PTCTestCase(unittest.TestCase):
         
     def tearDown(self):
         self.end_event.set()
+        self.join_threads()
         self.restore_socket()
         self.restore_threads()
         self.tear_down()
@@ -65,6 +66,11 @@ class PTCTestCase(unittest.TestCase):
     def tear_down(self):
         # This should be overriden for custom test tear-down.
         pass        
+    
+    def join_threads(self):
+        for thread in self.threads:
+            if thread.is_alive():
+                thread.join()
         
     def send(self, packet):
         self.network.send(packet)
@@ -74,7 +80,10 @@ class PTCTestCase(unittest.TestCase):
     def receive(self):
         address = self.DEFAULT_SRC_ADDRESS
         port = self.DEFAULT_SRC_PORT 
-        return self.network.receive_for(address, port)
+        packet = self.network.receive_for(address, port)
+        if packet is None:
+            self.fail('Something went wrong. See details above.')
+        return packet
     
     def patch_socket(self):
         def custom_send(_self, packet):
@@ -111,14 +120,15 @@ class PTCTestCase(unittest.TestCase):
                 self.thread_run(_self)
             except Exception, e:
                 traceback.print_exc(e)
-                _self.protocol.close()
                 self.network.close()
+                _self.protocol.close()
                      
         def custom_init(_self, protocol):
             threading.Thread.__init__(_self)
             _self.protocol = protocol
             _self.setDaemon(False)
             _self.keep_running = True
+            self.threads.append(_self)
         
         thread_class = ptc.thread.PTCThread
         self.thread_init = getattr(thread_class, '__init__')
@@ -150,9 +160,13 @@ class PTCTestCase(unittest.TestCase):
             socket.bind((address, port))
             socket.listen()
             launched_event.set()
-            socket.accept()
-            self.end_event.wait()
-            socket.close()
+            try:
+                socket.accept()
+                self.end_event.wait()
+                socket.close()
+            except Exception, e:
+                traceback.print_exc(e)
+                self.network.close()
         
         ptc_socket = ptc.Socket()
         thread = threading.Thread(target=run, args=(ptc_socket,))
@@ -168,9 +182,13 @@ class PTCTestCase(unittest.TestCase):
                     
         def run(socket):
             socket.bind((address, port))
-            socket.connect((self.DEFAULT_SRC_ADDRESS, self.DEFAULT_SRC_PORT))
-            self.end_event.wait()
-            socket.close()
+            try:
+                socket.connect((self.DEFAULT_SRC_ADDRESS, self.DEFAULT_SRC_PORT))
+                self.end_event.wait()
+                socket.close()
+            except Exception, e:
+                traceback.print_exc(e)
+                self.network.close()
         
         ptc_socket = ptc.Socket()
         thread = threading.Thread(target=run, args=(ptc_socket,))

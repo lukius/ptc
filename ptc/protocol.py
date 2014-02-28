@@ -113,11 +113,7 @@ class PTCControlBlock(object):
 class PTCProtocol(object):
     
     def __init__(self):
-        self.retransmission_attempts = dict()
-        self.outgoing_buffer = buffers.DataBuffer()
-        self.incoming_buffer = buffers.DataBuffer()
         self.state = CLOSED
-        self.control_block = PTCControlBlock()
         self.packet_builder = packet_utils.PacketBuilder()
         self.socket = soquete.Soquete()
         self.initialize_threads()
@@ -136,24 +132,32 @@ class PTCProtocol(object):
         self.packet_receiver.stop()
         self.packet_sender.stop()
         self.packet_sender.notify()
-        self.clock.stop()        
+        self.clock.stop()
+    
+    def compute_iss(self):
+        return random.randint(0, MAX_SEQ)
+        
+    def initialize_control_block_from(self, packet, iss=None):
+        receive_seq = packet.get_seq_number()
+        window_size = packet.get_window_size()
+        send_seq = iss if iss is not None else self.compute_iss()
+        self.control_block = PTCControlBlock(send_seq, receive_seq,
+                                             window_size)
     
     def is_connected(self):
         return self.state == ESTABLISHED
         
-    def build_packet(self, payload=None, flags=None):
-        seq = self.control_block.get_send_seq()
+    def build_packet(self, seq=None, payload=None, flags=None):
+        if seq is None:
+            seq = self.control_block.get_snd_nxt()
         if payload is not None:
             self.control_block.increment_send_seq()
-        packet = self.packet_builder.build(payload=payload, flags=flags, seq=seq)
+        packet = self.packet_builder.build(payload=payload, flags=flags,
+                                           seq=seq)
         return packet
         
     def send_packet(self, packet):
         self.socket.send(packet)
-        
-    def send_and_queue_packet(self, packet):
-        self.send_packet(packet)
-        #self.retransmission_queue.put(packet)
         
     def set_destination_on_packet_builder(self, address, port):
         self.packet_builder.set_destination_address(address)
@@ -173,9 +177,10 @@ class PTCProtocol(object):
         self.start_threads()
         
         # Mandamos el SYN y luego hay que aguardar por el ACK
-        syn_packet = self.build_packet(flags=[SYNFlag])
+        self.iss = self.compute_iss()
+        syn_packet = self.build_packet(seq=self.iss, flags=[SYNFlag])
         self.state = SYN_SENT
-        self.send_and_queue_packet(syn_packet)
+        self.send_packet(syn_packet)
         
         self.connected_event.wait()
 
@@ -192,36 +197,19 @@ class PTCProtocol(object):
         self.packet_sender.notify()
         
     def receive(self, size):
-        if self.is_closed() and self.incoming_buffer.empty():
-            raise Exception('cannot receive: connection ended and no more pending data buffered')
-        elif self.incoming_buffer.empty() and not self.is_connected():
-            raise Exception('cannot receive: connection not established')        
-        if size < MIN_PACKET_SIZE:
-            size = MIN_PACKET_SIZE
-        data = self.incoming_buffer.sync_get(MIN_PACKET_SIZE, size)
-        return data
+        pass
     
     def tick(self):
         pass
     
     def handle_outgoing(self):
-        while self.control_block.send_allowed():
-            try:
-                data = self.outgoing_buffer.get(MIN_PACKET_SIZE, MAX_PACKET_SIZE)
-            except buffers.NotEnoughDataException:
-                break
-            else:
-                packet = self.build_packet(payload=data)
-                # Ajustar variables en el bloque de control
-                self.send_packet(packet)
-                #self.retransmission_queue.put(packet)
+        pass
     
     def handle_incoming(self, packet):
         if self.state == LISTEN:
             self.handle_incoming_on_listen(packet)
         else:
             if ACKFlag not in packet:
-                # packet should have ack flag
                 return
             if self.state == SYN_SENT:
                 self.handle_incoming_on_syn_sent(packet)
@@ -233,67 +221,42 @@ class PTCProtocol(object):
                 raise Exception('not handled yet')                                    
     
     def handle_incoming_on_listen(self, packet):
-        seq_number = packet.get_seq_number()
         if SYNFlag in packet:
             self.state = SYN_RCVD
+            self.initialize_control_block_from(packet)
             self.set_destination_on_packet_builder(packet.get_source_ip(),
                                                    packet.get_source_port())
-            self.control_block.set_receive_seq(seq_number)
             syn_ack_packet = self.build_packet(flags=[SYNFlag, ACKFlag])
             syn_ack_packet.set_ack_number(packet.get_seq_number())
             self.send_packet(syn_ack_packet)
-            self.control_block.set_receive_seq(seq_number)
-            self.control_block.increment_receive_seq()            
             
     def handle_incoming_on_syn_sent(self, packet):
         if SYNFlag not in packet:
             return
         ack_number = packet.get_ack_number()
-        expected_ack = self.control_block.get_send_seq()
+        expected_ack = self.iss
         if expected_ack == ack_number:
             self.state = ESTABLISHED
+            self.initialize_control_block_from(packet, iss=self.iss)
             self.dst_port = packet.get_source_port()
             self.dst_address = packet.get_source_ip()
-            self.control_block.adjust_window_with(ack_number)
             ack_packet = self.build_packet(flags=[ACKFlag])
             ack_packet.set_ack_number(packet.get_seq_number())
             self.send_packet(ack_packet)            
             #self.retransmission_queue.acknowledge(packet)
-            self.control_block.increment_send_seq()
             self.connected_event.set()
             
     def handle_incoming_on_syn_rcvd(self, packet):
         ack_number = packet.get_ack_number()
-        expected_ack = self.control_block.get_send_seq()
+        expected_ack = self.control_block.get_snd_nxt()
         if expected_ack == ack_number:
             self.state = ESTABLISHED
-            self.control_block.adjust_window_with(ack_number)
-            self.control_block.increment_send_seq()
             self.connected_event.set()            
             
     def handle_incoming_on_established(self, packet):       
-        ack_number = packet.get_ack_number()
-        accepted = self.control_block.accepts(ack_number)
-        if accepted:
-            self.control_block.adjust_window_with(ack_number)
-            #self.retransmission_queue.acknowledge(packet)
-            
-    def handle_close_connection(self):
-        if not self.outgoing_buffer.empty():
-            self.worker.signal_pending_data()
-            self.worker.signal_close_connection()
-        elif not self.retransmission_queue.empty():
-            self.worker.signal_close_connection()
-        else:
-            fin_packet = self.build_packet(flags=[FINFlag])
-            self.send_and_queue_packet(fin_packet)
-            self.state = FIN_SENT
+        pass
         
     def close(self):
-        self.incoming_buffer.clear()
-        self.outgoing_buffer.clear()
-        self.retransmission_queue.clear()
-        self.retransmission_attempts.clear()
         self.stop_threads()
         # Esto es por si falló el establecimiento de conexión (para destrabar al thread principal)
         self.connected_event.set()
