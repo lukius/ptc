@@ -4,6 +4,7 @@ import threading
 import random
 
 import buffers
+import constants
 import packet_utils
 import soquete
 import thread
@@ -11,8 +12,7 @@ import thread
 from packet import ACKFlag, FINFlag, SYNFlag
 from constants import MIN_PACKET_SIZE, MAX_PACKET_SIZE, CLOSED, SYN_RCVD,\
                       ESTABLISHED, FIN_SENT, SYN_SENT, MAX_SEQ, LISTEN,\
-                      SEND_WINDOW, MAX_RETRANSMISSION_ATTEMPTS, RECV_WINDOW,\
-                      RECEIVE_BUFFER_SIZE
+                      SEND_WINDOW, MAX_RETRANSMISSION_ATTEMPTS, RECV_WINDOW
 
 
 class PTCControlBlock(object):
@@ -24,12 +24,12 @@ class PTCControlBlock(object):
         self.snd_nxt = self.iss
         self.snd_una = self.iss
         self.rcv_nxt = self.irs
-        self.rcv_wnd = RECEIVE_BUFFER_SIZE
+        self.rcv_wnd = constants.RECEIVE_BUFFER_SIZE
         self.snd_wl1 = self.irs
         self.snd_wl2 = self.iss
-        
-        self.in_buffer = buffers.DataBuffer(size=RECEIVE_BUFFER_SIZE)
-        self.out_buffer = buffers.DataBuffer()
+        self.in_buffer = buffers.DataBuffer(size=constants.RECEIVE_BUFFER_SIZE,
+                                            start_index=self.irs)
+        self.out_buffer = buffers.DataBuffer(start_index=self.iss)
         
     def modular_sum(self, a, b):
         return (a + b) % (self.modulus + 1)
@@ -45,6 +45,12 @@ class PTCControlBlock(object):
     
     def get_snd_wnd(self):
         return self.snd_wnd
+    
+    def get_snd_wl1(self):
+        return self.snd_wl1
+
+    def get_snd_wl2(self):
+        return self.snd_wl2        
     
     def get_rcv_nxt(self):
         return self.rcv_nxt
@@ -68,7 +74,9 @@ class PTCControlBlock(object):
             payload = packet.get_payload()
             lower = max(self.rcv_nxt, seq_number)
             higher = min(self.rcv_nxt + self.rcv_wnd, seq_number + len(payload))
-            self.in_buffer[lower:higher] = payload
+            self.in_buffer[lower:higher] = payload[:higher-lower]
+            if lower == self.rcv_nxt:
+                self.rcv_nxt = higher
     
     def process_ack(self, packet):
         ack_number = packet.get_ack_number()
@@ -94,19 +102,25 @@ class PTCControlBlock(object):
         if self.snd_wl1 < seq_number or \
            (self.snd_wl1 == seq_number and self.snd_wl2 <= ack_number):
             self.snd_wnd = packet.get_window_size()
-            self.wl1 = seq_number
-            self.wl2 = ack_number
+            self.snd_wl1 = seq_number
+            self.snd_wl2 = ack_number
     
-    def bytes_allowed(self):
-        lower = 0
-        higher = self.snd_una + self.snd_wnd - self.snd_nxt
-        return self.out_buffer[lower:higher]
-    
+    def usable_window_size(self):
+        return self.snd_una + self.snd_wnd - self.snd_nxt
+
     def to_out_buffer(self, data):
         self.out_buffer.put(data)    
     
     def from_in_buffer(self, size):
-        pass
+        return self.in_buffer.get(size)
+    
+    def extract_from_out_buffer(self, size):
+        lower = self.snd_nxt
+        higher = self.snd_nxt + size
+        data = self.out_buffer[lower:higher]
+        del self.out_buffer[lower:higher]
+        self.snd_nxt += len(data)
+        return data
     
         
 
