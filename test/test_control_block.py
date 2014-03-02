@@ -67,9 +67,6 @@ class ControlBlockTest(PTCTestCase):
         self.assertEqual(usable_window_size, self.DEFAULT_IW - len(data))
         self.assertLess(len(to_send), self.MSS)
         
-        to_send = self.control_block.extract_from_out_buffer(self.MSS)
-        self.assertEqual(len(to_send), 0)
-        
     def test_receiving_valid_ack(self):
         size = 100
         ack_number = self.DEFAULT_ISS + size
@@ -174,7 +171,7 @@ class ControlBlockTest(PTCTestCase):
         snd_una = self.control_block.get_snd_una()
         snd_nxt = self.control_block.get_snd_nxt()
         rcv_nxt = self.control_block.get_rcv_nxt()
-        data = self.control_block.in_buffer[:rcv_nxt]
+        data = self.control_block.from_in_buffer(size)
         
         self.assertEqual(snd_una, self.DEFAULT_ISS)
         self.assertEqual(snd_nxt, snd_una)
@@ -197,12 +194,39 @@ class ControlBlockTest(PTCTestCase):
         snd_una = self.control_block.get_snd_una()
         snd_nxt = self.control_block.get_snd_nxt()
         rcv_nxt = self.control_block.get_rcv_nxt()
-        data = self.control_block.in_buffer[seq_number:seq_number+size]
         
         self.assertEqual(snd_una, self.DEFAULT_ISS)
         self.assertEqual(snd_nxt, snd_una)
         self.assertEqual(rcv_nxt, self.DEFAULT_IRS)
-        self.assertEqual(data, payload[:offset])
+        
+    def test_receiving_new_data_after_processing_contiguous_chunks(self):
+        size = 100
+        offset = 50
+        payload = self.DEFAULT_DATA[:size]
+        ack_number = self.DEFAULT_ISS
+        seq_number = self.DEFAULT_IRS + offset
+        packet1 = self.packet_builder.build(flags=[ACKFlag],
+                                            seq=seq_number,
+                                            ack=ack_number,
+                                            payload=payload[offset:])
+        seq_number = self.DEFAULT_IRS
+        packet2 = self.packet_builder.build(flags=[ACKFlag],
+                                            seq=seq_number,
+                                            ack=ack_number,
+                                            payload=payload[:offset])        
+        
+        self.control_block.process_incoming(packet1)
+        self.control_block.process_incoming(packet2)
+        
+        snd_una = self.control_block.get_snd_una()
+        snd_nxt = self.control_block.get_snd_nxt()
+        rcv_nxt = self.control_block.get_rcv_nxt()
+        data = self.control_block.from_in_buffer(size)
+        
+        self.assertEqual(snd_una, self.DEFAULT_ISS)
+        self.assertEqual(snd_nxt, snd_una)
+        self.assertEqual(rcv_nxt, self.DEFAULT_IRS + size)
+        self.assertEqual(data, payload)
     
     def test_receiving_new_data_outside_window(self):
         size = 100
@@ -262,7 +286,7 @@ class ControlBlockTest(PTCTestCase):
         snd_una = self.control_block.get_snd_una()
         snd_nxt = self.control_block.get_snd_nxt()
         rcv_nxt = self.control_block.get_rcv_nxt()
-        data = self.control_block.in_buffer[:rcv_nxt]
+        data = self.control_block.from_in_buffer(size)
         
         self.assertEqual(snd_una, ack_number)
         self.assertEqual(snd_nxt, ack_number)

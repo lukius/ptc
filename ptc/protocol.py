@@ -27,8 +27,7 @@ class PTCControlBlock(object):
         self.rcv_wnd = constants.RECEIVE_BUFFER_SIZE
         self.snd_wl1 = self.irs
         self.snd_wl2 = self.iss
-        self.in_buffer = buffers.DataBuffer(size=constants.RECEIVE_BUFFER_SIZE,
-                                            start_index=self.irs)
+        self.in_buffer = buffers.DataBuffer(start_index=self.irs)
         self.out_buffer = buffers.DataBuffer(start_index=self.iss)
         
     def modular_sum(self, a, b):
@@ -73,10 +72,12 @@ class PTCControlBlock(object):
             seq_number = packet.get_seq_number()
             payload = packet.get_payload()
             lower = max(self.rcv_nxt, seq_number)
-            higher = min(self.rcv_nxt + self.rcv_wnd, seq_number + len(payload))
-            self.in_buffer[lower:higher] = payload[:higher-lower]
+            self.in_buffer.add_chunk(lower, payload)
             if lower == self.rcv_nxt:
-                self.rcv_nxt = higher
+                # We should advance rcv_nxt since the lower end of the chunk
+                # just added matches its old value. The buffer tracks this
+                # value as data is inserted and removed.
+                self.rcv_nxt = self.in_buffer.get_last_index()
     
     def process_ack(self, packet):
         ack_number = packet.get_ack_number()
@@ -115,10 +116,7 @@ class PTCControlBlock(object):
         return self.in_buffer.get(size)
     
     def extract_from_out_buffer(self, size):
-        lower = self.snd_nxt
-        higher = self.snd_nxt + size
-        data = self.out_buffer[lower:higher]
-        del self.out_buffer[lower:higher]
+        data = self.out_buffer.get(size)
         self.snd_nxt += len(data)
         return data
     
