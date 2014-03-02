@@ -9,32 +9,27 @@ import packet_utils
 import soquete
 import thread
 
-from packet import ACKFlag, FINFlag, SYNFlag
 from constants import MIN_PACKET_SIZE, MAX_PACKET_SIZE, CLOSED, SYN_RCVD,\
                       ESTABLISHED, FIN_SENT, SYN_SENT, MAX_SEQ, LISTEN,\
                       SEND_WINDOW, MAX_RETRANSMISSION_ATTEMPTS, RECV_WINDOW
+from packet import ACKFlag, FINFlag, SYNFlag
+from seqnum import SequenceNumber
 
 
 class PTCControlBlock(object):
     
     def __init__(self, send_seq, receive_seq, window_size):
-        self.iss = send_seq
-        self.irs = receive_seq
+        self.iss = SequenceNumber(send_seq)
+        self.irs = SequenceNumber(receive_seq)
         self.snd_wnd = window_size
-        self.snd_nxt = self.iss
-        self.snd_una = self.iss
-        self.rcv_nxt = self.irs
+        self.snd_nxt = SequenceNumber(send_seq)
+        self.snd_una = SequenceNumber(send_seq)
+        self.rcv_nxt = SequenceNumber(receive_seq)
         self.rcv_wnd = constants.RECEIVE_BUFFER_SIZE
-        self.snd_wl1 = self.irs
-        self.snd_wl2 = self.iss
+        self.snd_wl1 = SequenceNumber(receive_seq)
+        self.snd_wl2 = SequenceNumber(send_seq)
         self.in_buffer = buffers.DataBuffer(start_index=self.irs)
         self.out_buffer = buffers.DataBuffer(start_index=self.iss)
-        
-    def modular_sum(self, a, b):
-        return (a + b) % (self.modulus + 1)
-    
-    def modular_increment(self, a):
-        return self.modular_sum(a, 1)        
         
     def get_snd_nxt(self):
         return self.snd_nxt
@@ -87,14 +82,16 @@ class PTCControlBlock(object):
             self.update_window(packet)
         
     def ack_is_accepted(self, ack_number):
-        # TODO: modular arithmetic
-        return self.snd_una <= ack_number <= self.snd_nxt
+        return SequenceNumber.a_leq_b_leq_c(self.snd_una, ack_number,
+                                            self.snd_nxt)
     
     def payload_is_accepted(self, packet):
         first_byte = packet.get_seq_number()
         last_byte = first_byte + len(packet.get_payload()) - 1
-        first_ok =  self.rcv_nxt <= first_byte <= self.rcv_nxt + self.rcv_wnd
-        last_ok = self.rcv_nxt <= last_byte <= self.rcv_nxt + self.rcv_wnd
+        first_ok = SequenceNumber.a_leq_b_leq_c(self.rcv_nxt, first_byte,
+                                                self.rcv_nxt + self.rcv_wnd)
+        last_ok = SequenceNumber.a_leq_b_leq_c(self.rcv_nxt, last_byte,
+                                               self.rcv_nxt + self.rcv_wnd)
         return last_byte >= first_byte and (first_ok or last_ok)
     
     def update_window(self, packet):
@@ -105,7 +102,7 @@ class PTCControlBlock(object):
             self.snd_wnd = packet.get_window_size()
             self.snd_wl1 = seq_number
             self.snd_wl2 = ack_number
-    
+            
     def usable_window_size(self):
         return self.snd_una + self.snd_wnd - self.snd_nxt
 

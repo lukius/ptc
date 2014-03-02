@@ -11,8 +11,3 @@ class SocketAlreadyConnectedException(Exception):
 class SocketAlreadyBoundException(Exception):
     
     pass
-
-
-class BufferFullException(Exception):
-    
-    pass
