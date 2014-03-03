@@ -74,11 +74,11 @@ class PTCTestCase(unittest.TestCase):
         self.set_up()
         
     def tearDown(self):
+        self.tear_down()
         self.end_event.set()
         self.join_threads()
         self.restore_socket()
         self.restore_threads()
-        self.tear_down()
         
     def set_up_packet_builder(self):
         self.packet_builder = ptc.packet_utils.PacketBuilder()
@@ -105,10 +105,10 @@ class PTCTestCase(unittest.TestCase):
         # This is to give enough time to the protocol to process the packet.
         time.sleep(0.1)
         
-    def receive(self):
+    def receive(self, timeout=None):
         address = self.DEFAULT_SRC_ADDRESS
         port = self.DEFAULT_SRC_PORT 
-        packet = self.network.receive_for(address, port)
+        packet = self.network.receive_for(address, port, timeout=timeout)
         if packet is None:
             self.fail('Something went wrong. See details above.')
         return packet
@@ -211,7 +211,8 @@ class PTCTestCase(unittest.TestCase):
         def run(socket):
             socket.bind((address, port))
             try:
-                socket.connect((self.DEFAULT_SRC_ADDRESS, self.DEFAULT_SRC_PORT))
+                socket.connect((self.DEFAULT_SRC_ADDRESS,
+                                self.DEFAULT_SRC_PORT))
                 self.end_event.wait()
                 socket.close()
             except Exception, e:
@@ -222,6 +223,20 @@ class PTCTestCase(unittest.TestCase):
         thread = threading.Thread(target=run, args=(ptc_socket,))
         thread.start()
         return ptc_socket
+    
+    def get_connected_socket(self, src_address, src_port, dst_address,
+                             dst_port, iss, irs, send_window, receive_window):
+        ptc_socket = ptc.Socket()
+        ptc_socket.bind((src_address, src_port))
+        ptc_socket.protocol.start_threads()
+        ptc_socket.protocol.state = ptc.constants.ESTABLISHED
+        ptc_socket.protocol.connected_event = threading.Event()
+        control_block = ptc.protocol.PTCControlBlock(iss, irs, send_window,
+                                                     receive_window)
+        ptc_socket.protocol.control_block = control_block
+        ptc_socket.protocol.set_destination_on_packet_builder(dst_address,
+                                                              dst_port)
+        return ptc_socket        
 
         
 class Network(object):

@@ -12,6 +12,10 @@ class DataBuffer(object):
         
     def get_last_index(self):
         return self.last_index
+    
+    def empty(self):
+        with self.condition:
+            return len(self.buffer) == 0
         
     def get(self, size):
         with self.condition:

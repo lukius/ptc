@@ -9,23 +9,22 @@ import packet_utils
 import soquete
 import thread
 
-from constants import MIN_PACKET_SIZE, MAX_PACKET_SIZE, CLOSED, SYN_RCVD,\
-                      ESTABLISHED, FIN_SENT, SYN_SENT, MAX_SEQ, LISTEN,\
-                      SEND_WINDOW, MAX_RETRANSMISSION_ATTEMPTS, RECV_WINDOW
+from constants import MSS, CLOSED, SYN_RCVD, ESTABLISHED, FIN_SENT, SYN_SENT,\
+                      LISTEN, MAX_SEQ
 from packet import ACKFlag, FINFlag, SYNFlag
 from seqnum import SequenceNumber
 
 
 class PTCControlBlock(object):
     
-    def __init__(self, send_seq, receive_seq, window_size):
+    def __init__(self, send_seq, receive_seq, send_window, receive_window):
         self.iss = SequenceNumber(send_seq)
         self.irs = SequenceNumber(receive_seq)
-        self.snd_wnd = window_size
+        self.snd_wnd = send_window
         self.snd_nxt = SequenceNumber(send_seq)
         self.snd_una = SequenceNumber(send_seq)
         self.rcv_nxt = SequenceNumber(receive_seq)
-        self.rcv_wnd = constants.RECEIVE_BUFFER_SIZE
+        self.rcv_wnd = receive_window
         self.snd_wl1 = SequenceNumber(receive_seq)
         self.snd_wl2 = SequenceNumber(send_seq)
         self.in_buffer = buffers.DataBuffer(start_index=self.irs)
@@ -77,7 +76,7 @@ class PTCControlBlock(object):
     def process_ack(self, packet):
         ack_number = packet.get_ack_number()
         if self.ack_is_accepted(ack_number):
-            self.snd_una = ack_number
+            self.snd_una = SequenceNumber(ack_number)
             # TODO: Remove from retransmission queue
             self.update_window(packet)
         
@@ -105,6 +104,9 @@ class PTCControlBlock(object):
             
     def usable_window_size(self):
         return self.snd_una + self.snd_wnd - self.snd_nxt
+    
+    def has_data_to_send(self):
+        return not self.out_buffer.empty()
 
     def to_out_buffer(self, data):
         self.out_buffer.put(data)    
@@ -126,6 +128,8 @@ class PTCProtocol(object):
         self.state = CLOSED
         self.packet_builder = packet_utils.PacketBuilder()
         self.socket = soquete.Soquete()
+        self.rcv_wnd = constants.RECEIVE_BUFFER_SIZE        
+        self.iss = self.compute_iss()
         self.initialize_threads()
         
     def initialize_threads(self):
@@ -149,21 +153,25 @@ class PTCProtocol(object):
         
     def initialize_control_block_from(self, packet, iss=None):
         receive_seq = packet.get_seq_number()
-        window_size = packet.get_window_size()
-        send_seq = iss if iss is not None else self.compute_iss()
+        send_seq = self.iss
+        send_window = packet.get_window_size()
+        receive_window = self.rcv_wnd
         self.control_block = PTCControlBlock(send_seq, receive_seq,
-                                             window_size)
+                                             send_window, receive_window)
     
     def is_connected(self):
         return self.state == ESTABLISHED
         
-    def build_packet(self, seq=None, payload=None, flags=None):
+    def build_packet(self, seq=None, ack=None, payload=None, flags=None,
+                     window=None):
         if seq is None:
             seq = self.control_block.get_snd_nxt()
-        if payload is not None:
-            self.control_block.increment_send_seq()
+        if flags is None:
+            flags = [ACKFlag]
+        if ack is None and ACKFlag in flags:
+            ack = self.control_block.get_rcv_nxt()
         packet = self.packet_builder.build(payload=payload, flags=flags,
-                                           seq=seq)
+                                           seq=seq, ack=ack, window=window)
         return packet
         
     def send_packet(self, packet):
@@ -187,8 +195,8 @@ class PTCProtocol(object):
         self.start_threads()
         
         # Mandamos el SYN y luego hay que aguardar por el ACK
-        self.iss = self.compute_iss()
-        syn_packet = self.build_packet(seq=self.iss, flags=[SYNFlag])
+        syn_packet = self.build_packet(seq=self.iss, flags=[SYNFlag],
+                                       window=self.rcv_wnd)
         self.state = SYN_SENT
         self.send_packet(syn_packet)
         
@@ -207,13 +215,24 @@ class PTCProtocol(object):
         self.packet_sender.notify()
         
     def receive(self, size):
-        pass
+        return self.control_block.from_in_buffer(size)
     
     def tick(self):
         pass
     
     def handle_outgoing(self):
-        pass
+        window_closed = False
+        while self.control_block.has_data_to_send() and not window_closed:
+            seq_number = self.control_block.get_snd_nxt()
+            to_send = self.control_block.extract_from_out_buffer(MSS)
+            if not to_send:
+                # Control block returned nothing, which hints that the window
+                # is closed. Thus, we have nothing else to do until further
+                # ACKs arrive.
+                window_closed = True
+            else:
+                packet = self.build_packet(payload=to_send, seq=seq_number)
+                self.send_packet(packet)
     
     def handle_incoming(self, packet):
         if self.state == LISTEN:
@@ -236,7 +255,8 @@ class PTCProtocol(object):
             self.initialize_control_block_from(packet)
             self.set_destination_on_packet_builder(packet.get_source_ip(),
                                                    packet.get_source_port())
-            syn_ack_packet = self.build_packet(flags=[SYNFlag, ACKFlag])
+            syn_ack_packet = self.build_packet(flags=[SYNFlag, ACKFlag],
+                                               window=self.rcv_wnd)
             syn_ack_packet.set_ack_number(packet.get_seq_number())
             self.send_packet(syn_ack_packet)
             
@@ -263,8 +283,9 @@ class PTCProtocol(object):
             self.state = ESTABLISHED
             self.connected_event.set()            
             
-    def handle_incoming_on_established(self, packet):       
-        pass
+    def handle_incoming_on_established(self, packet):
+        self.control_block.process_incoming(packet)
+        self.packet_sender.notify()
         
     def close(self):
         self.stop_threads()

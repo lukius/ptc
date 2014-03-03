@@ -12,11 +12,11 @@ class ControlBlockTest(PTCTestCase):
     DEFAULT_DATA = 'data' * 50
     MSS = 150
     
-    
     def set_up(self):
         constants.RECEIVE_BUFFER_SIZE = self.DEFAULT_IW
         self.control_block = PTCControlBlock(self.DEFAULT_ISS,
                                              self.DEFAULT_IRS,
+                                             self.DEFAULT_IW,
                                              self.DEFAULT_IW)
     
     def test_creation(self):
@@ -33,6 +33,7 @@ class ControlBlockTest(PTCTestCase):
         self.assertEqual(snd_wl1, self.DEFAULT_IRS)
         self.assertEqual(snd_wl2, self.DEFAULT_ISS)                
         self.assertEqual(usable_window_size, self.DEFAULT_IW)
+        self.assertFalse(self.control_block.has_data_to_send())
         
     def test_new_data_to_send(self):
         data = self.DEFAULT_DATA
@@ -44,6 +45,7 @@ class ControlBlockTest(PTCTestCase):
         self.assertEqual(snd_nxt, snd_una)
         self.assertEqual(snd_una, self.DEFAULT_ISS)
         self.assertEqual(usable_window_size, self.DEFAULT_IW)
+        self.assertTrue(self.control_block.has_data_to_send())
         
     def test_extracting_outgoing_data(self):
         data = self.DEFAULT_DATA
@@ -66,6 +68,7 @@ class ControlBlockTest(PTCTestCase):
         self.assertEqual(snd_nxt, self.DEFAULT_ISS + len(data))
         self.assertEqual(usable_window_size, self.DEFAULT_IW - len(data))
         self.assertLess(len(to_send), self.MSS)
+        self.assertFalse(self.control_block.has_data_to_send())
         
     def test_bytes_to_send_do_not_exceed_snd_wnd(self):
         data = self.DEFAULT_DATA * self.DEFAULT_IW

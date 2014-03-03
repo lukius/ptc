@@ -14,8 +14,11 @@ class BufferTest(unittest.TestCase):
         self.buffer = DataBuffer(start_index=self.DEFAULT_START_INDEX)
                 
     def test_basic_buffer_manipulation(self):
+        self.assertTrue(self.buffer.empty())
+        
         size = 25
         self.buffer.put(self.data)
+        self.assertFalse(self.buffer.empty())
         
         data1 = self.buffer.get(size)
         data2 = self.buffer.get(size)
