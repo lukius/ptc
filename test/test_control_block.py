@@ -67,6 +67,21 @@ class ControlBlockTest(PTCTestCase):
         self.assertEqual(usable_window_size, self.DEFAULT_IW - len(data))
         self.assertLess(len(to_send), self.MSS)
         
+    def test_bytes_to_send_do_not_exceed_snd_wnd(self):
+        data = self.DEFAULT_DATA * self.DEFAULT_IW
+        mss = len(data) / 2
+        self.control_block.to_out_buffer(data)
+        
+        to_send = self.control_block.extract_from_out_buffer(mss)
+        to_send += self.control_block.extract_from_out_buffer(mss)
+        snd_nxt = self.control_block.get_snd_nxt()
+        snd_una = self.control_block.get_snd_una()
+        usable_window_size = self.control_block.usable_window_size()
+        
+        self.assertEqual(snd_nxt, snd_una + self.DEFAULT_IW)
+        self.assertEqual(usable_window_size, 0)
+        self.assertEqual(len(to_send), self.DEFAULT_IW)
+
     def test_receiving_valid_ack(self):
         size = 100
         ack_number = self.DEFAULT_ISS + size

@@ -113,11 +113,12 @@ class PTCControlBlock(object):
         return self.in_buffer.get(size)
     
     def extract_from_out_buffer(self, size):
+        usable_window = self.usable_window_size()
+        size = min(size, usable_window)
         data = self.out_buffer.get(size)
         self.snd_nxt += len(data)
         return data
     
-        
 
 class PTCProtocol(object):
     
