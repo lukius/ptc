@@ -93,7 +93,6 @@ class DataExchangeTest(PTCTestCase):
         received = self.socket.recv(len(self.DEFAULT_DATA))
         
         self.assertEqual(received, to_send)
-        
     
     def test_sending_and_receiving_data(self):
         # TODO: complete this!
