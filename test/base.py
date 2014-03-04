@@ -224,6 +224,30 @@ class PTCTestCase(unittest.TestCase):
         thread.start()
         return ptc_socket
     
+
+class ConnectedSocketTestCase(PTCTestCase):
+    
+    DEFAULT_ISS = 20
+    DEFAULT_IRS = 10
+    DEFAULT_IW = 10
+    DEFAULT_DATA = 'data' * 5
+    DEFAULT_TIMEOUT = 0.5    
+    
+    def set_up(self):
+        src_address, src_port = self.DEFAULT_DST_ADDRESS, self.DEFAULT_DST_PORT
+        dst_address, dst_port = self.DEFAULT_SRC_ADDRESS, self.DEFAULT_SRC_PORT
+        self.socket = self.get_connected_socket(src_address=src_address,
+                                                src_port=src_port,
+                                                dst_address=dst_address,
+                                                dst_port=dst_port,
+                                                iss=self.DEFAULT_ISS,
+                                                irs=self.DEFAULT_IRS,
+                                                send_window=self.DEFAULT_IW,
+                                                receive_window=self.DEFAULT_IW)
+        
+    def tear_down(self):
+        self.socket.protocol.close()    
+
     def get_connected_socket(self, src_address, src_port, dst_address,
                              dst_port, iss, irs, send_window, receive_window):
         ptc_socket = ptc.Socket()
@@ -237,8 +261,8 @@ class PTCTestCase(unittest.TestCase):
         ptc_socket.protocol.set_destination_on_packet_builder(dst_address,
                                                               dst_port)
         return ptc_socket        
+    
 
-        
 class Network(object):
     
     def __init__(self):

@@ -1,30 +1,10 @@
-from base import PTCTestCase
+from base import ConnectedSocketTestCase
 
 from ptc.packet import ACKFlag
 
 
-class DataExchangeTest(PTCTestCase):
+class DataExchangeTest(ConnectedSocketTestCase):
     
-    DEFAULT_ISS = 20
-    DEFAULT_IRS = 10
-    DEFAULT_IW = 10
-    DEFAULT_DATA = 'data' * 5
-    
-    def set_up(self):
-        src_address, src_port = self.DEFAULT_DST_ADDRESS, self.DEFAULT_DST_PORT
-        dst_address, dst_port = self.DEFAULT_SRC_ADDRESS, self.DEFAULT_SRC_PORT
-        self.socket = self.get_connected_socket(src_address=src_address,
-                                                src_port=src_port,
-                                                dst_address=dst_address,
-                                                dst_port=dst_port,
-                                                iss=self.DEFAULT_ISS,
-                                                irs=self.DEFAULT_IRS,
-                                                send_window=self.DEFAULT_IW,
-                                                receive_window=self.DEFAULT_IW)
-        
-    def tear_down(self):
-        self.socket.protocol.close()
-        
     def receive_data(self):
         data = str()
         timeout = 0.5
@@ -47,7 +27,7 @@ class DataExchangeTest(PTCTestCase):
         self.socket.send(self.DEFAULT_DATA)
         data = self.receive_data()
         self.assertEqual(data, self.DEFAULT_DATA)
-    
+        
     def test_receiving_data_out_of_order(self):
         size = 9
         offset = 4
@@ -95,5 +75,18 @@ class DataExchangeTest(PTCTestCase):
         self.assertEqual(received, to_send)
     
     def test_sending_and_receiving_data(self):
-        # TODO: complete this!
-        pass        
+        size = 10
+        data = self.DEFAULT_DATA[:size]
+        packet = self.packet_builder.build(payload=data,
+                                           flags=[ACKFlag],
+                                           seq=self.DEFAULT_IRS,
+                                           ack=self.DEFAULT_ISS)
+        self.socket.send(data)
+        self.send(packet)
+        
+        received = self.socket.recv(size)
+        packet = self.receive(1)
+        sent = packet.get_payload()
+        
+        self.assertEqual(received, data)
+        self.assertEqual(sent, data)

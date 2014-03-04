@@ -170,6 +170,9 @@ class PTCProtocol(object):
             flags = [ACKFlag]
         if ack is None and ACKFlag in flags:
             ack = self.control_block.get_rcv_nxt()
+        if window is None:
+            # TODO: fix rcv_wnd calculation (when updating rcv_nxt).
+            window = self.control_block.get_rcv_wnd()
         packet = self.packet_builder.build(payload=payload, flags=flags,
                                            seq=seq, ack=ack, window=window)
         return packet
@@ -285,6 +288,13 @@ class PTCProtocol(object):
             
     def handle_incoming_on_established(self, packet):
         self.control_block.process_incoming(packet)
+        if not self.control_block.has_data_to_send():
+            # If some data is about to be sent, then just piggyback the ACK
+            # there. It is not necessary to manually send an ACK.
+            if len(packet.get_payload()) > 0:
+                # Do not send ACKs for plain ACK segments.
+                ack_packet = self.build_packet()
+                self.send_packet(ack_packet)
         self.packet_sender.notify()
         
     def close(self):
