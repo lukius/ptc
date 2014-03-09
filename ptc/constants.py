@@ -9,7 +9,6 @@ CLOCK_TICK = 0.1
 
 MAX_SEQ = (1<<32) - 1
 MAX_ACK = (1<<32) - 1
-RECV_WINDOW = 1
 
 SYN_SENT = 1
 SYN_RECEIVED = 2

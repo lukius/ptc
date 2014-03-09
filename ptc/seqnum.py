@@ -1,7 +1,5 @@
 class SequenceNumber(object):
 
-    # TODO: fix comparison when numbers wrap around.
-    
     @classmethod  
     def validate_moduli(cls, a, b):
         if a.modulus != b.modulus:
@@ -10,38 +8,47 @@ class SequenceNumber(object):
     @classmethod
     def a_lt_b_lt_c(cls, a, b, c):
         cls.validate_moduli(a, c)
-        if a > c:
-            return (b > a and b < a.modulus) or b < c
+        if c.wrapped and not a.wrapped:
+            return (b > a.value and b < a.modulus) or b < c.value
+        elif not c.wrapped and a.wrapped:
+            return False
         else:
             return a < b < c
     
     @classmethod
     def a_leq_b_lt_c(cls, a, b, c):
         cls.validate_moduli(a, c)
-        if a > c:
-            return (b >= a and b < a.modulus) or b < c
+        if c.wrapped and not a.wrapped:
+            return (b >= a.value and b < a.modulus) or b < c.value
+        elif not c.wrapped and a.wrapped:
+            return False        
         else:
             return a <= b < c
     
     @classmethod
     def a_lt_b_leq_c(cls, a, b, c):
         cls.validate_moduli(a, c)
-        if a > c:
-            return (b > a and b < a.modulus) or b <= c
+        if c.wrapped and not a.wrapped:
+            return (b > a.value and b < a.modulus) or b <= c.value
+        elif not c.wrapped and a.wrapped:
+            return False        
         else:
             return a < b <= c
     
     @classmethod
     def a_leq_b_leq_c(cls, a, b, c):
         cls.validate_moduli(a, c)
-        if a > c:
-            return (b >= a and b < a.modulus) or b <= c
+        if c.wrapped and not a.wrapped:
+            return (b >= a.value and b < a.modulus) or b <= c.value
+        elif not c.wrapped and a.wrapped:
+            return False        
         else:
             return a < b <= c
     
-    def __init__(self, value, modulus=None):
+    def __init__(self, value, modulus=None, wrapped=False):
         self.modulus = modulus if modulus is not None else 2**32
         self.value = value % self.modulus
+        self.wrapped = wrapped
         
     def __add__(self, other):
         def addition(a, b):
@@ -71,34 +78,40 @@ class SequenceNumber(object):
         return self.__mul__(other)
         
     def __eq__(self, other):
-        def equals(a, b):
-            return a == b
-        return self.compare_with(other, equals)
+        other = self.get_seqnum_from(other)
+        if self.wrapped and not other.wrapped:
+            return False
+        elif not self.wrapped and other.wrapped:
+            return False
+        else:
+            return self.value == other.value
 
     def __lt__(self, other):
-        def less_than(a, b):
-            return a < b
-        return self.compare_with(other, less_than)
-    
+        other = self.get_seqnum_from(other)
+        if self.wrapped and not other.wrapped:
+            return False
+        elif not self.wrapped and other.wrapped:
+            return True
+        else:
+            return self.value < other.value
+            
     def __gt__(self, other):
-        def greater_than(a, b):
-            return a > b
-        return self.compare_with(other, greater_than)
+        other = self.get_seqnum_from(other)
+        if self.wrapped and not other.wrapped:
+            return True
+        elif not self.wrapped and other.wrapped:
+            return False
+        else:
+            return self.value > other.value
     
     def __le__(self, other):
-        def leq(a, b):
-            return a <= b
-        return self.compare_with(other, leq)
+        return self < other or self == other
     
     def __ge__(self, other):
-        def geq(a, b):
-            return a >= b
-        return self.compare_with(other, geq)            
+        return self > other or self == other
         
     def __ne__(self, other):
-        def not_equals(a, b):
-            return a != b
-        return self.compare_with(other, not_equals)        
+        return not self == other       
         
     def __hash__(self):
         return hash(self.value)
@@ -113,19 +126,14 @@ class SequenceNumber(object):
         return self.value
     
     def operate_with(self, other, operation):
-        arg = self.get_value_from(other)
-        value = operation(self.value, arg)
+        other = self.get_seqnum_from(other)
+        value = operation(self.value, other.value)
+        wrapped = self.wrapped or value >= self.modulus
         value %= self.modulus
-        return self.__class__(value, modulus=self.modulus)
+        return self.__class__(value, modulus=self.modulus, wrapped=wrapped)
     
-    def compare_with(self, other, comparison):
-        arg = self.get_value_from(other)
-        return comparison(self.value, arg)
-    
-    def get_value_from(self, other):        
-        if isinstance(other, self.__class__):
-            self.validate_moduli(self, other)
-            value = other.value
-        else:
-            value = other
-        return value    
+    def get_seqnum_from(self, other):        
+        if not isinstance(other, self.__class__):
+            other = self.__class__(other, modulus=self.modulus, wrapped=False)
+        self.validate_moduli(self, other)
+        return other
