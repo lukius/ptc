@@ -81,6 +81,24 @@ class ACKTest(ConnectedSocketTestCase):
         self.assertIn(ACKFlag, ack_packet2)
         self.assertEqual(ack_number1, self.DEFAULT_IRS)
         self.assertEqual(ack_number2, self.DEFAULT_IRS + size)
+        
+    def test_sending_piggybacked_ack(self):
+        size = 10
+        data = self.DEFAULT_DATA[:size]
+        packet = self.packet_builder.build(payload=data,
+                                           flags=[ACKFlag],
+                                           seq=self.DEFAULT_IRS,
+                                           ack=self.DEFAULT_ISS)
+        self.send(packet)
+        self.receive(self.DEFAULT_TIMEOUT)
+        self.socket.send(data)
+        packet = self.receive(self.DEFAULT_TIMEOUT)
+        ack_number = packet.get_ack_number()
+        payload = packet.get_payload()
+        
+        self.assertIn(ACKFlag, packet)
+        self.assertEqual(ack_number, self.DEFAULT_IRS + size)
+        self.assertEqual(data, payload)
     
     def test_not_sending_ack_for_ack_segment(self):
         packet = self.packet_builder.build(flags=[ACKFlag],

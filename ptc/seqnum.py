@@ -1,4 +1,6 @@
 class SequenceNumber(object):
+
+    # TODO: fix comparison when numbers wrap around.
     
     @classmethod  
     def validate_moduli(cls, a, b):

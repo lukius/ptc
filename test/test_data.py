@@ -85,7 +85,7 @@ class DataExchangeTest(ConnectedSocketTestCase):
         self.send(packet)
         
         received = self.socket.recv(size)
-        packet = self.receive(1)
+        packet = self.receive(self.DEFAULT_TIMEOUT)
         sent = packet.get_payload()
         
         self.assertEqual(received, data)
