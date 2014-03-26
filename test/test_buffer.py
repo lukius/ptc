@@ -1,7 +1,7 @@
 import threading
 import unittest
 
-from ptc.buffers import DataBuffer
+from ptc.buffer import DataBuffer
 
 
 class BufferTest(unittest.TestCase):

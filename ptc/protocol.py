@@ -3,7 +3,7 @@
 import threading
 import random
 
-import buffers
+from ptc import buffer
 import constants
 import packet_utils
 import soquete
@@ -27,8 +27,8 @@ class PTCControlBlock(object):
         self.rcv_wnd = receive_window
         self.snd_wl1 = SequenceNumber(receive_seq)
         self.snd_wl2 = SequenceNumber(send_seq)
-        self.in_buffer = buffers.DataBuffer(start_index=self.irs)
-        self.out_buffer = buffers.DataBuffer(start_index=self.iss)
+        self.in_buffer = buffer.DataBuffer(start_index=self.irs)
+        self.out_buffer = buffer.DataBuffer(start_index=self.iss)
         
     def get_snd_nxt(self):
         return self.snd_nxt
