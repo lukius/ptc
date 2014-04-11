@@ -27,6 +27,7 @@ class RetransmissionQueue(object):
     def remove_acknowledged_by(self, ack_packet):
         with self.lock:
             to_remove = list()
+            packets = list()
             for index, packet_tuple in enumerate(self.queue):
                 packet = packet_tuple[0]
                 ack = ack_packet.get_ack_number()
@@ -36,7 +37,9 @@ class RetransmissionQueue(object):
                 if seq_lo <= ack and seq_hi <= ack:
                     to_remove.append(index)
             for index in to_remove:
+                packets.append(self.queue[index][0])
                 del self.queue[index]
+            return packets
         
     def put(self, packet):
         with self.lock:

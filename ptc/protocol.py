@@ -3,30 +3,31 @@
 import threading
 import random
 
-from ptc import buffer
+import buffer
 import constants
 import packet_utils
+import rqueue
+import seqnum
 import soquete
 import thread
 
 from constants import MSS, CLOSED, SYN_RCVD, ESTABLISHED, FIN_SENT, SYN_SENT,\
-                      LISTEN, MAX_SEQ
+                      LISTEN, MAX_SEQ, MAX_RETRANSMISSION_ATTEMPTS
 from packet import ACKFlag, FINFlag, SYNFlag
-from seqnum import SequenceNumber
 
 
 class PTCControlBlock(object):
     
     def __init__(self, send_seq, receive_seq, send_window, receive_window):
-        self.iss = SequenceNumber(send_seq)
-        self.irs = SequenceNumber(receive_seq)
+        self.iss = seqnum.SequenceNumber(send_seq)
+        self.irs = seqnum.SequenceNumber(receive_seq)
         self.snd_wnd = send_window
-        self.snd_nxt = SequenceNumber(send_seq)
-        self.snd_una = SequenceNumber(send_seq)
-        self.rcv_nxt = SequenceNumber(receive_seq)
+        self.snd_nxt = seqnum.SequenceNumber(send_seq)
+        self.snd_una = seqnum.SequenceNumber(send_seq)
+        self.rcv_nxt = seqnum.SequenceNumber(receive_seq)
         self.rcv_wnd = receive_window
-        self.snd_wl1 = SequenceNumber(receive_seq)
-        self.snd_wl2 = SequenceNumber(send_seq)
+        self.snd_wl1 = seqnum.SequenceNumber(receive_seq)
+        self.snd_wl2 = seqnum.SequenceNumber(send_seq)
         self.in_buffer = buffer.DataBuffer(start_index=self.irs)
         self.out_buffer = buffer.DataBuffer(start_index=self.iss)
         
@@ -76,21 +77,22 @@ class PTCControlBlock(object):
     def process_ack(self, packet):
         ack_number = packet.get_ack_number()
         if self.ack_is_accepted(ack_number):
-            self.snd_una = SequenceNumber(ack_number)
+            self.snd_una = seqnum.SequenceNumber(ack_number)
             # TODO: Remove from retransmission queue
             self.update_window(packet)
         
     def ack_is_accepted(self, ack_number):
-        return SequenceNumber.a_leq_b_leq_c(self.snd_una, ack_number,
-                                            self.snd_nxt)
+        return seqnum.SequenceNumber.a_leq_b_leq_c(self.snd_una, ack_number,
+                                                   self.snd_nxt)
     
     def payload_is_accepted(self, packet):
         first_byte = packet.get_seq_number()
         last_byte = first_byte + len(packet.get_payload()) - 1
-        first_ok = SequenceNumber.a_leq_b_leq_c(self.rcv_nxt, first_byte,
-                                                self.rcv_nxt + self.rcv_wnd)
-        last_ok = SequenceNumber.a_leq_b_leq_c(self.rcv_nxt, last_byte,
-                                               self.rcv_nxt + self.rcv_wnd)
+        first_ok = seqnum.SequenceNumber.a_leq_b_leq_c(self.rcv_nxt,
+                                                       first_byte,
+                                                       self.rcv_nxt+self.rcv_wnd)
+        last_ok = seqnum.SequenceNumber.a_leq_b_leq_c(self.rcv_nxt, last_byte,
+                                                      self.rcv_nxt+self.rcv_wnd)
         return last_byte >= first_byte and (first_ok or last_ok)
     
     def update_window(self, packet):
@@ -121,6 +123,10 @@ class PTCControlBlock(object):
         self.snd_nxt += len(data)
         return data
     
+    def flush_buffers(self):
+        self.in_buffer.flush()
+        self.out_buffer.flush()
+    
 
 class PTCProtocol(object):
     
@@ -130,6 +136,8 @@ class PTCProtocol(object):
         self.socket = soquete.Soquete()
         self.rcv_wnd = constants.RECEIVE_BUFFER_SIZE        
         self.iss = self.compute_iss()
+        self.rqueue = rqueue.RetransmissionQueue()
+        self.retransmission_attempts = dict()
         self.initialize_threads()
         
     def initialize_threads(self):
@@ -177,7 +185,8 @@ class PTCProtocol(object):
                                            seq=seq, ack=ack, window=window)
         return packet
         
-    def send_packet(self, packet):
+    def send_and_queue(self, packet):
+        self.rqueue.put(packet)
         self.socket.send(packet)
         
     def set_destination_on_packet_builder(self, address, port):
@@ -201,7 +210,7 @@ class PTCProtocol(object):
         syn_packet = self.build_packet(seq=self.iss, flags=[SYNFlag],
                                        window=self.rcv_wnd)
         self.state = SYN_SENT
-        self.send_packet(syn_packet)
+        self.send_and_queue(syn_packet)
         
         self.connected_event.wait()
 
@@ -221,8 +230,33 @@ class PTCProtocol(object):
         return self.control_block.from_in_buffer(size)
     
     def tick(self):
-        pass
+        self.rqueue.tick()
+        self.retransmit_packets_if_needed()
+        
+    def retransmit_packets_if_needed(self):
+        to_retransmit = self.rqueue.get_packets_to_retransmit()
+        for packet in to_retransmit:
+            attempts = self.update_retransmission_attempts_for(packet)
+            if attempts > MAX_RETRANSMISSION_ATTEMPTS:
+                # Give up. Maximum number of retransmissions exceeded for this
+                # packet.
+                self.close()
+            else:
+                self.send_and_queue(packet)
     
+    def update_retransmission_attempts_for(self, packet):
+        seq_number = packet.get_seq_number()
+        attempts = 1 + self.retransmission_attempts.setdefault(seq_number, 0)
+        self.retransmission_attempts[seq_number] = attempts
+        return attempts
+    
+    def acknowledge_packets_on_retransmission_queue_with(self, packet):
+        removed_packets = self.rqueue.remove_acknowledged_by(packet)
+        for removed_packet in removed_packets:
+            seq_number = removed_packet.get_seq_number()
+            if seq_number in self.retransmission_attempts:
+                del self.retransmission_attempts[seq_number]
+        
     def handle_outgoing(self):
         window_closed = False
         while self.control_block.has_data_to_send() and not window_closed:
@@ -235,13 +269,14 @@ class PTCProtocol(object):
                 window_closed = True
             else:
                 packet = self.build_packet(payload=to_send, seq=seq_number)
-                self.send_packet(packet)
+                self.send_and_queue(packet)
     
     def handle_incoming(self, packet):
         if self.state == LISTEN:
             self.handle_incoming_on_listen(packet)
         else:
             if ACKFlag not in packet:
+                # Ignore packets not following protocol specification.
                 return
             if self.state == SYN_SENT:
                 self.handle_incoming_on_syn_sent(packet)
@@ -250,7 +285,8 @@ class PTCProtocol(object):
             elif self.state == ESTABLISHED:
                 self.handle_incoming_on_established(packet)
             else:
-                raise Exception('not handled yet')                                    
+                raise Exception('not handled yet')
+            self.acknowledge_packets_on_retransmission_queue_with(packet)
     
     def handle_incoming_on_listen(self, packet):
         if SYNFlag in packet:
@@ -261,7 +297,7 @@ class PTCProtocol(object):
             syn_ack_packet = self.build_packet(flags=[SYNFlag, ACKFlag],
                                                window=self.rcv_wnd)
             syn_ack_packet.set_ack_number(packet.get_seq_number())
-            self.send_packet(syn_ack_packet)
+            self.socket.send(syn_ack_packet)
             
     def handle_incoming_on_syn_sent(self, packet):
         if SYNFlag not in packet:
@@ -275,7 +311,7 @@ class PTCProtocol(object):
             self.dst_address = packet.get_source_ip()
             ack_packet = self.build_packet(flags=[ACKFlag])
             ack_packet.set_ack_number(packet.get_seq_number())
-            self.send_packet(ack_packet)            
+            self.socket.send(ack_packet)            
             #self.retransmission_queue.acknowledge(packet)
             self.connected_event.set()
             
@@ -294,10 +330,11 @@ class PTCProtocol(object):
             if len(packet.get_payload()) > 0:
                 # Do not send ACKs for plain ACK segments.
                 ack_packet = self.build_packet()
-                self.send_packet(ack_packet)
+                self.socket.send(ack_packet)
         self.packet_sender.notify()
         
     def close(self):
+        self.control_block.flush_buffers()
         self.stop_threads()
         # Esto es por si falló el establecimiento de conexión (para destrabar al thread principal)
         self.connected_event.set()

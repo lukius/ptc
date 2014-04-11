@@ -86,6 +86,9 @@ class DataExchangeTest(ConnectedSocketTestCase):
         
         received = self.socket.recv(size)
         packet = self.receive(self.DEFAULT_TIMEOUT)
+        # ACK may arrive first, and so we should skip it.
+        if not packet.get_payload():
+            packet = self.receive(self.DEFAULT_TIMEOUT)
         sent = packet.get_payload()
         
         self.assertEqual(received, data)
