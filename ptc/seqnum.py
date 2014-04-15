@@ -43,7 +43,7 @@ class SequenceNumber(object):
         elif not c.wrapped and a.wrapped:
             return False        
         else:
-            return a < b <= c
+            return a <= b <= c
     
     def __init__(self, value, modulus=None, wrapped=False):
         self.modulus = modulus if modulus is not None else 2**32

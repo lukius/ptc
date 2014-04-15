@@ -1,7 +1,7 @@
 import random
 import threading
 
-from constants import NULL_ADDRESS
+from constants import NULL_ADDRESS, SHUT_RD, SHUT_WR, SHUT_RDWR
 from exceptions import SocketAlreadyConnectedException
 from exceptions import SocketAlreadyBoundException
 from exceptions import SocketNotConnectedException
@@ -87,6 +87,11 @@ class Socket(object):
         if not self.is_connected():
             raise SocketNotConnectedException        
         return self.protocol.receive(size)
+    
+    def shutdown(self, how=SHUT_RDWR):
+        if how not in [SHUT_RD, SHUT_WR, SHUT_RDWR]:
+            raise RuntimeError('%s: invalid argument' % str(how))
+        self.protocol.shutdown(how)
 
     def close(self):
         self.protocol.close()

@@ -80,7 +80,8 @@ class DataExchangeTest(ConnectedSocketTestCase):
         packet = self.packet_builder.build(payload=data,
                                            flags=[ACKFlag],
                                            seq=self.DEFAULT_IRS,
-                                           ack=self.DEFAULT_ISS)
+                                           ack=self.DEFAULT_ISS,
+                                           window=self.DEFAULT_IW)
         self.socket.send(data)
         self.send(packet)
         

@@ -88,7 +88,8 @@ class ACKTest(ConnectedSocketTestCase):
         packet = self.packet_builder.build(payload=data,
                                            flags=[ACKFlag],
                                            seq=self.DEFAULT_IRS,
-                                           ack=self.DEFAULT_ISS)
+                                           ack=self.DEFAULT_ISS,
+                                           window=self.DEFAULT_IW)
         self.send(packet)
         self.receive(self.DEFAULT_TIMEOUT)
         self.socket.send(data)

@@ -11,8 +11,10 @@ import seqnum
 import soquete
 import thread
 
-from constants import MSS, CLOSED, SYN_RCVD, ESTABLISHED, FIN_SENT, SYN_SENT,\
-                      LISTEN, MAX_SEQ, MAX_RETRANSMISSION_ATTEMPTS
+from constants import MSS, CLOSED, SYN_RCVD, ESTABLISHED, SYN_SENT,\
+                      LISTEN, FIN_WAIT1, FIN_WAIT2, MAX_SEQ,\
+                      MAX_RETRANSMISSION_ATTEMPTS, SHUT_RD, SHUT_WR
+from exceptions import WriteStreamClosedException
 from packet import ACKFlag, FINFlag, SYNFlag
 
 
@@ -58,9 +60,10 @@ class PTCControlBlock(object):
     def get_irs(self):
         return self.irs
         
-    def process_incoming(self, packet):
-        self.process_payload(packet)
+    def process_incoming(self, packet, ignore_payload=False):
         self.process_ack(packet)
+        if not ignore_payload:
+            self.process_payload(packet)
         
     def process_payload(self, packet):    
         if self.payload_is_accepted(packet):
@@ -78,7 +81,6 @@ class PTCControlBlock(object):
         ack_number = packet.get_ack_number()
         if self.ack_is_accepted(ack_number):
             self.snd_una = seqnum.SequenceNumber(ack_number)
-            # TODO: Remove from retransmission queue
             self.update_window(packet)
         
     def ack_is_accepted(self, ack_number):
@@ -138,6 +140,8 @@ class PTCProtocol(object):
         self.iss = self.compute_iss()
         self.rqueue = rqueue.RetransmissionQueue()
         self.retransmission_attempts = dict()
+        self.read_stream_open = True
+        self.write_stream_open = True
         self.initialize_threads()
         
     def initialize_threads(self):
@@ -168,7 +172,8 @@ class PTCProtocol(object):
                                              send_window, receive_window)
     
     def is_connected(self):
-        return self.state == ESTABLISHED
+        connected_states = [ESTABLISHED, FIN_WAIT1, FIN_WAIT2]
+        return self.state in connected_states
         
     def build_packet(self, seq=None, ack=None, payload=None, flags=None,
                      window=None):
@@ -223,6 +228,8 @@ class PTCProtocol(object):
         self.connected_event.wait()        
         
     def send(self, data):
+        if not self.write_stream_open:
+            raise WriteStreamClosedException
         self.control_block.to_out_buffer(data)
         self.packet_sender.notify()
         
@@ -258,6 +265,16 @@ class PTCProtocol(object):
                 del self.retransmission_attempts[seq_number]
         
     def handle_outgoing(self):
+        if self.write_stream_open or self.control_block.has_data_to_send():
+            self.attempt_to_send_data()
+        else:
+            # Send FIN when:
+            #   * Write stream is closed,
+            #   * State is ESTABLISHED (i.e., FIN was not yet sent), and
+            #   * Every outgoing byte was successfully acknowledged.
+            self.attempt_to_send_FIN()
+            
+    def attempt_to_send_data(self):
         window_closed = False
         while self.control_block.has_data_to_send() and not window_closed:
             seq_number = self.control_block.get_snd_nxt()
@@ -270,6 +287,12 @@ class PTCProtocol(object):
             else:
                 packet = self.build_packet(payload=to_send, seq=seq_number)
                 self.send_and_queue(packet)
+                
+    def attempt_to_send_FIN(self):
+        if self.state == ESTABLISHED and self.rqueue.empty():
+            fin_packet = self.build_packet(flags=[ACKFlag, FINFlag])
+            self.state = FIN_WAIT1
+            self.send_and_queue(fin_packet)
     
     def handle_incoming(self, packet):
         if self.state == LISTEN:
@@ -284,6 +307,10 @@ class PTCProtocol(object):
                 self.handle_incoming_on_syn_rcvd(packet)
             elif self.state == ESTABLISHED:
                 self.handle_incoming_on_established(packet)
+            elif self.state == FIN_WAIT1:
+                self.handle_incoming_on_fin_wait1(packet)
+            elif self.state == FIN_WAIT2:
+                self.handle_incoming_on_fin_wait2(packet)                
             else:
                 raise Exception('not handled yet')
             self.acknowledge_packets_on_retransmission_queue_with(packet)
@@ -323,7 +350,9 @@ class PTCProtocol(object):
             self.connected_event.set()            
             
     def handle_incoming_on_established(self, packet):
-        self.control_block.process_incoming(packet)
+        ignore_payload = not self.read_stream_open
+        self.control_block.process_incoming(packet,
+                                            ignore_payload=ignore_payload)
         if not self.control_block.has_data_to_send():
             # If some data is about to be sent, then just piggyback the ACK
             # there. It is not necessary to manually send an ACK.
@@ -333,6 +362,51 @@ class PTCProtocol(object):
                 self.socket.send(ack_packet)
         self.packet_sender.notify()
         
+    def handle_incoming_on_fin_wait1(self, packet):
+        # TODO: remove duplicate code.
+        ignore_payload = not self.read_stream_open
+        self.control_block.process_incoming(packet,
+                                            ignore_payload=ignore_payload)
+        ack_number = packet.get_ack_number()
+        if self.control_block.ack_is_accepted(ack_number):
+            # It can only be the ACK to our FIN packet previously sent.
+            self.state = FIN_WAIT2
+            
+    def handle_incoming_on_fin_wait2(self, packet):
+        # TODO: remove duplicate code.
+        # TODO: what if read stream is closed here?
+        should_send_ack = False
+        ack_number = packet.get_ack_number()
+        if FINFlag in packet and\
+           self.control_block.ack_is_accepted(ack_number):
+            self.state = CLOSED
+            should_send_ack = True
+        elif self.control_block.ack_is_accepted(ack_number):
+            ignore_payload = not self.read_stream_open
+            self.control_block.process_incoming(packet,
+                                                ignore_payload=ignore_payload)
+            if len(packet.get_payload()) > 0:
+                should_send_ack = True
+        if should_send_ack:
+            ack_packet = self.build_packet()
+            self.socket.send(ack_packet)            
+        
+    def shutdown(self, how):
+        if how == SHUT_RD:
+            self.shutdown_read_stream()
+        elif how == SHUT_WR:
+            self.shutdown_write_stream()
+        else:
+            self.shutdown_read_stream()
+            self.shutdown_write_stream()
+            
+    def shutdown_read_stream(self):
+        self.read_stream_open = False
+    
+    def shutdown_write_stream(self):
+        self.write_stream_open = False
+        self.packet_sender.notify()
+            
     def close(self):
         self.control_block.flush_buffers()
         self.stop_threads()

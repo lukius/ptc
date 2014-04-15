@@ -11,3 +11,8 @@ class SocketAlreadyConnectedException(Exception):
 class SocketAlreadyBoundException(Exception):
     
     pass
+
+
+class WriteStreamClosedException(Exception):
+    
+    pass

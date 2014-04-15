@@ -184,7 +184,7 @@ class ConnectedSocketTestCase(PTCTestCase):
     DEFAULT_IRS = 10
     DEFAULT_IW = 10
     DEFAULT_DATA = 'data' * 5
-    DEFAULT_TIMEOUT = 0.5    
+    DEFAULT_TIMEOUT = 1
     
     def set_up(self):
         src_address, src_port = self.DEFAULT_DST_ADDRESS, self.DEFAULT_DST_PORT
