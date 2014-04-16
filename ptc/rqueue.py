@@ -9,7 +9,7 @@ class RetransmissionQueue(object):
     def __init__(self):
         self.queue = list()
         self.packets_to_retransmit = list()
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         
     def empty(self):
         with self.lock:
@@ -68,3 +68,9 @@ class RetransmissionQueue(object):
             index = None
         if index is not None:
             del self.packets_to_retransmit[index]
+            
+    def __enter__(self, *args, **kwargs):
+        return self.lock.__enter__(*args, **kwargs)
+    
+    def __exit__(self, *args, **kwargs):
+        return self.lock.__exit__(*args, **kwargs)

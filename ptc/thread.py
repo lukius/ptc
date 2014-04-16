@@ -52,15 +52,19 @@ class PacketSender(PTCThread):
     
     def __init__(self, protocol):
         self.condition = threading.Condition()
+        self.notified = False
         PTCThread.__init__(self, protocol)
     
     def wait(self):
         with self.condition:
-            self.condition.wait()
+            if not self.notified:
+                self.condition.wait()
+            self.notified = False
     
     def notify(self):
         with self.condition:
             self.condition.notify()
+            self.notified = True
     
     def do_run(self):
         self.wait()

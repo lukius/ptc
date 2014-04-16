@@ -237,8 +237,9 @@ class PTCProtocol(object):
         return self.control_block.from_in_buffer(size)
     
     def tick(self):
-        self.rqueue.tick()
-        self.retransmit_packets_if_needed()
+        with self.rqueue:
+            self.rqueue.tick()
+            self.retransmit_packets_if_needed()
         
     def retransmit_packets_if_needed(self):
         to_retransmit = self.rqueue.get_packets_to_retransmit()
@@ -258,11 +259,12 @@ class PTCProtocol(object):
         return attempts
     
     def acknowledge_packets_on_retransmission_queue_with(self, packet):
-        removed_packets = self.rqueue.remove_acknowledged_by(packet)
-        for removed_packet in removed_packets:
-            seq_number = removed_packet.get_seq_number()
-            if seq_number in self.retransmission_attempts:
-                del self.retransmission_attempts[seq_number]
+        with self.rqueue:
+            removed_packets = self.rqueue.remove_acknowledged_by(packet)
+            for removed_packet in removed_packets:
+                seq_number = removed_packet.get_seq_number()
+                if seq_number in self.retransmission_attempts:
+                    del self.retransmission_attempts[seq_number]
         
     def handle_outgoing(self):
         if self.write_stream_open or self.control_block.has_data_to_send():
