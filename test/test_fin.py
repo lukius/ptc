@@ -1,9 +1,11 @@
 import socket
+import threading
 import time
 
 from base import ConnectedSocketTestCase
-from ptc.constants import RETRANSMISSION_TIMEOUT, SHUT_RD, SHUT_WR, SHUT_RDWR,\
-                          ESTABLISHED, FIN_WAIT1, FIN_WAIT2, CLOSED
+from ptc.constants import RETRANSMISSION_TIMEOUT, SHUT_RD, SHUT_WR,\
+                          ESTABLISHED, FIN_WAIT1, FIN_WAIT2, CLOSED,\
+                          CLOSE_WAIT, LAST_ACK
 from ptc.exceptions import WriteStreamClosedException
 from ptc.packet import ACKFlag, FINFlag
 
@@ -132,6 +134,21 @@ class FINTest(ConnectedSocketTestCase):
         self.assertEquals(self.DEFAULT_IRS+size, ack_number)
         self.assertEquals(0, len(ack_packet.get_payload()))
         
+    def test_receive_fin_on_established(self):
+        fin_packet = self.packet_builder.build(flags=[ACKFlag, FINFlag],
+                                               seq=self.DEFAULT_IRS,
+                                               ack=self.DEFAULT_ISS) 
+        self.send(fin_packet)
+        ack_packet = self.receive(self.DEFAULT_TIMEOUT)
+        seq_number = ack_packet.get_seq_number()
+        ack_number = ack_packet.get_ack_number()
+        
+        self.assertEquals(CLOSE_WAIT, self.socket.protocol.state)
+        self.assertFalse(self.socket.protocol.read_stream_open)
+        self.assertEquals(self.DEFAULT_ISS, seq_number)
+        self.assertEquals(self.DEFAULT_IRS, ack_number)
+        self.assertEquals(0, len(ack_packet.get_payload()))  
+               
     def test_receive_fin_on_fin_wait2(self):
         fin_packet = self.packet_builder.build(flags=[ACKFlag, FINFlag],
                                                seq=self.DEFAULT_IRS,
@@ -145,6 +162,60 @@ class FINTest(ConnectedSocketTestCase):
         ack_number = ack_packet.get_ack_number()
         
         self.assertEquals(CLOSED, self.socket.protocol.state)
+        self.assertFalse(self.socket.protocol.read_stream_open)
         self.assertEquals(self.DEFAULT_ISS, seq_number)
         self.assertEquals(self.DEFAULT_IRS, ack_number)
-        self.assertEquals(0, len(ack_packet.get_payload()))        
+        self.assertEquals(0, len(ack_packet.get_payload()))
+        
+    def test_ignore_packets_on_close_wait(self):
+        packet = self.packet_builder.build(flags=[ACKFlag],
+                                           seq=self.DEFAULT_IRS,
+                                           ack=self.DEFAULT_ISS,
+                                           payload=self.DEFAULT_DATA) 
+        # Hack: make the socket think it is on CLOSE_WAIT.
+        self.socket.protocol.state = CLOSE_WAIT
+        self.socket.protocol.read_stream_open = False
+        self.send(packet)
+        
+        self.assertRaises(socket.timeout, self.receive, self.DEFAULT_TIMEOUT)
+        self.assertEquals(CLOSE_WAIT, self.socket.protocol.state)
+
+    def test_close_write_stream_on_close_wait(self):
+        # Hack: make the socket think it is on CLOSE_WAIT.
+        self.socket.protocol.state = CLOSE_WAIT
+        self.socket.protocol.read_stream_open = False
+        self.socket.shutdown(SHUT_WR)
+        fin_packet = self.receive(self.DEFAULT_TIMEOUT)
+        seq_number = fin_packet.get_seq_number()
+        
+        self.assertEquals(LAST_ACK, self.socket.protocol.state)
+        self.assertIn(FINFlag, fin_packet)
+        self.assertEquals(0, len(fin_packet.get_payload()))
+        # FIN flag should be sequenced.
+        self.assertEquals(self.DEFAULT_ISS, seq_number)
+        
+        ack_packet = self.packet_builder.build(flags=[ACKFlag],
+                                               seq=self.DEFAULT_IRS,
+                                               ack=self.DEFAULT_ISS)
+        self.send(ack_packet)
+        
+        self.assertEquals(CLOSED, self.socket.protocol.state)
+        self.assertRaises(socket.timeout, self.receive, self.DEFAULT_TIMEOUT)
+        
+    def test_close_socket(self):
+        def send_ack():
+            ack_packet = self.packet_builder.build(flags=[ACKFlag],
+                                                   seq=self.DEFAULT_IRS,
+                                                   ack=self.DEFAULT_ISS)
+            self.send(ack_packet)
+
+        # The close call below will block the main thread. So, we set a timer
+        # that will unblock it by sending the ACK to the FIN triggered by that
+        # close.
+        ack_sender = threading.Timer(1, send_ack)
+        ack_sender.start()
+        self.socket.close()
+        
+        self.assertEquals(CLOSED, self.socket.protocol.state)
+        self.assertFalse(self.socket.protocol.write_stream_open)
+        self.assertFalse(self.socket.protocol.read_stream_open)

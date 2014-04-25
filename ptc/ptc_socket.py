@@ -16,7 +16,7 @@ class Socket(object):
         
     def __del__(self):
         try:
-            self.close()
+            self.free()
         except:
             pass
 
@@ -53,7 +53,7 @@ class Socket(object):
     def _accept(self, timeout):
         def timeout_handler():
             print 'accept timed out.'
-            self.close()
+            self.free()
         
         if timeout is not None:
             timer = threading.Timer(timeout, timeout_handler)
@@ -71,7 +71,7 @@ class Socket(object):
     def _connect(self, address_tuple, timeout):
         def timeout_handler():
             print 'connect timed out.'
-            self.close()
+            self.free()
         
         if timeout is not None:
             timer = threading.Timer(timeout, timeout_handler)
@@ -95,6 +95,9 @@ class Socket(object):
 
     def close(self):
         self.protocol.close()
+        
+    def free(self):
+        self.protocol.free()
 
     def is_connected(self):
         return self.protocol.is_connected()

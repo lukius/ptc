@@ -22,7 +22,7 @@ class SYNTest(PTCTestCase):
             try:
                 socket.accept()
                 self.end_event.wait()
-                socket.close()
+                socket.free()
             except Exception, e:
                 traceback.print_exc(e)
                 self.network.close()
@@ -45,7 +45,7 @@ class SYNTest(PTCTestCase):
                 socket.connect((self.DEFAULT_SRC_ADDRESS,
                                 self.DEFAULT_SRC_PORT))
                 self.end_event.wait()
-                socket.close()
+                socket.free()
             except Exception, e:
                 traceback.print_exc(e)
                 self.network.close()

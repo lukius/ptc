@@ -149,7 +149,7 @@ class PTCTestCase(unittest.TestCase):
             except Exception, e:
                 traceback.print_exc(e)
                 self.network.close()
-                _self.protocol.close()
+                _self.protocol.free()
                      
         def custom_init(_self, protocol):
             threading.Thread.__init__(_self)
@@ -199,7 +199,7 @@ class ConnectedSocketTestCase(PTCTestCase):
                                                 receive_window=self.DEFAULT_IW)
         
     def tear_down(self):
-        self.socket.protocol.close()    
+        self.socket.protocol.free()    
 
     def get_connected_socket(self, src_address, src_port, dst_address,
                              dst_port, iss, irs, send_window, receive_window):
