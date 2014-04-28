@@ -145,6 +145,7 @@ class PTCProtocol(object):
     
     def __init__(self):
         self.state = CLOSED
+        self.control_block = None
         self.packet_builder = packet_utils.PacketBuilder()
         self.socket = soquete.Soquete()
         self.rcv_wnd = constants.RECEIVE_BUFFER_SIZE        
@@ -282,6 +283,10 @@ class PTCProtocol(object):
                     del self.retransmission_attempts[seq_number]
         
     def handle_outgoing(self):
+        if self.control_block is None:
+            # When connection is still not established, we don't have 
+            # anything to send.
+            return
         if self.write_stream_open or self.control_block.has_data_to_send():
             self.attempt_to_send_data()
         else:
@@ -361,7 +366,6 @@ class PTCProtocol(object):
             ack_packet = self.build_packet(flags=[ACKFlag])
             ack_packet.set_ack_number(packet.get_seq_number())
             self.socket.send(ack_packet)            
-            #self.retransmission_queue.acknowledge(packet)
             self.connected_event.set()
             
     def handle_incoming_on_syn_rcvd(self, packet):
@@ -453,7 +457,8 @@ class PTCProtocol(object):
         self.free()
             
     def free(self):
-        self.control_block.flush_buffers()
+        if self.control_block is not None:
+            self.control_block.flush_buffers()
         self.stop_threads()
         # In case connection establishment failed, this will unlock the main
         # thread.
