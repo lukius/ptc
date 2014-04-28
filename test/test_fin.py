@@ -147,7 +147,22 @@ class FINTest(ConnectedSocketTestCase):
         self.assertFalse(self.socket.protocol.read_stream_open)
         self.assertEquals(self.DEFAULT_ISS, seq_number)
         self.assertEquals(self.DEFAULT_IRS, ack_number)
-        self.assertEquals(0, len(ack_packet.get_payload()))  
+        self.assertEquals(0, len(ack_packet.get_payload()))
+        
+    def test_fin_with_unexpected_seq_number_is_ignored(self):
+        fin_packet = self.packet_builder.build(flags=[ACKFlag, FINFlag],
+                                               seq=self.DEFAULT_IRS+10,
+                                               ack=self.DEFAULT_ISS) 
+        self.send(fin_packet)
+        ack_packet = self.receive(self.DEFAULT_TIMEOUT)
+        seq_number = ack_packet.get_seq_number()
+        ack_number = ack_packet.get_ack_number()
+        
+        self.assertEquals(ESTABLISHED, self.socket.protocol.state)
+        self.assertTrue(self.socket.protocol.read_stream_open)
+        self.assertEquals(self.DEFAULT_ISS, seq_number)
+        self.assertEquals(self.DEFAULT_IRS, ack_number)
+        self.assertEquals(0, len(ack_packet.get_payload()))
                
     def test_receive_fin_on_fin_wait2(self):
         fin_packet = self.packet_builder.build(flags=[ACKFlag, FINFlag],

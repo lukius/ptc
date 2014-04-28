@@ -70,13 +70,20 @@ class PTCControlBlock(object):
         if self.payload_is_accepted(packet):
             seq_number = packet.get_seq_number()
             payload = packet.get_payload()
+            last_byte = seq_number + len(payload)
             lower = max(self.rcv_nxt, seq_number)
-            self.in_buffer.add_chunk(lower, payload)
+            upper = min(self.rcv_nxt + self.rcv_wnd, last_byte)
+            # Honor RCV_WND by dropping those bytes that go below it
+            # or beyond it.
+            effective_payload = payload[lower-seq_number:upper-seq_number]
+            self.in_buffer.add_chunk(lower, effective_payload)
             if lower == self.rcv_nxt:
                 # We should advance rcv_nxt since the lower end of the chunk
                 # just added matches its old value. The buffer tracks this
                 # value as data is inserted and removed.
                 self.rcv_nxt = self.in_buffer.get_last_index()
+                # Decrease window until data is removed from the buffer.
+                self.rcv_wnd = self.rcv_wnd - len(effective_payload)
     
     def process_ack(self, packet):
         ack_number = packet.get_ack_number()
@@ -117,7 +124,10 @@ class PTCControlBlock(object):
         self.out_buffer.put(data)    
     
     def from_in_buffer(self, size):
-        return self.in_buffer.get(size)
+        data = self.in_buffer.get(size)
+        # Window should grow now, since data has been consumed.
+        self.rcv_wnd += len(data)
+        return data
     
     def extract_from_out_buffer(self, size):
         usable_window = self.usable_window_size()
@@ -191,7 +201,6 @@ class PTCProtocol(object):
         if ack is None and ACKFlag in flags:
             ack = self.control_block.get_rcv_nxt()
         if window is None:
-            # TODO: fix rcv_wnd calculation (when updating rcv_nxt).
             window = self.control_block.get_rcv_wnd()
         packet = self.packet_builder.build(payload=payload, flags=flags,
                                            seq=seq, ack=ack, window=window)
@@ -218,7 +227,6 @@ class PTCProtocol(object):
         self.set_destination_on_packet_builder(address, port)
         self.start_threads()
         
-        # Mandamos el SYN y luego hay que aguardar por el ACK
         syn_packet = self.build_packet(seq=self.iss, flags=[SYNFlag],
                                        window=self.rcv_wnd)
         self.set_state(SYN_SENT)
@@ -231,7 +239,7 @@ class PTCProtocol(object):
             raise Exception('should listen first')
         self.connected_event = threading.Event()
         self.start_threads()
-        # No hay mucho por hacer... simplemente esperar a que caiga el SYN del cliente
+        # Wait until client attempts to connect.
         self.connected_event.wait()        
         
     def send(self, data):
@@ -361,60 +369,56 @@ class PTCProtocol(object):
         expected_ack = self.control_block.get_snd_nxt()
         if expected_ack == ack_number:
             self.set_state(ESTABLISHED)
-            self.connected_event.set()            
+            self.connected_event.set()
             
-    def handle_incoming_on_established(self, packet):
-        should_send_ack = False
-        ack_number = packet.get_ack_number()
-        if FINFlag in packet and\
-           self.control_block.ack_is_accepted(ack_number):
-            self.set_state(CLOSE_WAIT)
+    def handle_incoming_fin(self, packet, next_state):
+        seq_number = packet.get_seq_number()
+        # SEQ number should be the one we are expecting.        
+        if seq_number == self.control_block.get_rcv_nxt():
+            self.set_state(next_state)
             self.read_stream_open = False
-            should_send_ack = True
-        elif self.control_block.ack_is_accepted(ack_number):        
-            ignore_payload = not self.read_stream_open
-            self.control_block.process_incoming(packet,
-                                                ignore_payload=ignore_payload)
-            if not self.control_block.has_data_to_send():
-                # If some data is about to be sent, then just piggyback the ACK
-                # there. It is not necessary to manually send an ACK.
-                if len(packet.get_payload()) > 0:
-                    # Do not send ACKs for plain ACK segments.
-                    should_send_ack = True
-        if should_send_ack:
-            ack_packet = self.build_packet()
-            self.socket.send(ack_packet)                        
-        self.packet_sender.notify()
+        # Send ACK (if the previous check fails, the ACK number will be
+        # automatically set to the proper one).
+        ack_packet = self.build_packet()
+        self.socket.send(ack_packet)
         
-    def handle_incoming_on_fin_wait1(self, packet):
-        # TODO: remove duplicate code.
+    def process_on_control_block(self, packet):
         ignore_payload = not self.read_stream_open
         self.control_block.process_incoming(packet,
                                             ignore_payload=ignore_payload)
+        
+    def send_ack_for_packet_only_if_it_has_payload(self, packet):
+        # This is to avoid sending ACKs for plain ACK segments.
+        if len(packet.get_payload()) > 0:
+            ack_packet = self.build_packet()
+            self.socket.send(ack_packet)        
+            
+    def handle_incoming_on_established(self, packet):
+        if FINFlag in packet:
+            self.handle_incoming_fin(packet, next_state=CLOSE_WAIT)
+        else:        
+            self.process_on_control_block(packet)
+            if not self.control_block.has_data_to_send():
+                # If some data is about to be sent, then just piggyback the ACK
+                # there. It is not necessary to manually send an ACK.
+                self.send_ack_for_packet_only_if_it_has_payload(packet)
+            self.packet_sender.notify()
+        
+    def handle_incoming_on_fin_wait1(self, packet):
+        # We might receive data, so we must process the packet accordingly.
+        self.process_on_control_block(packet)
         ack_number = packet.get_ack_number()
         if self.control_block.ack_is_accepted(ack_number):
             # It can only be the ACK to our FIN packet previously sent.
             self.set_state(FIN_WAIT2)
             
     def handle_incoming_on_fin_wait2(self, packet):
-        # TODO: remove duplicate code.
         # TODO: what if read stream is closed here?
-        should_send_ack = False
-        ack_number = packet.get_ack_number()
-        if FINFlag in packet and\
-           self.control_block.ack_is_accepted(ack_number):
-            self.set_state(CLOSED)
-            self.read_stream_open = False
-            should_send_ack = True
-        elif self.control_block.ack_is_accepted(ack_number):
-            ignore_payload = not self.read_stream_open
-            self.control_block.process_incoming(packet,
-                                                ignore_payload=ignore_payload)
-            if len(packet.get_payload()) > 0:
-                should_send_ack = True
-        if should_send_ack:
-            ack_packet = self.build_packet()
-            self.socket.send(ack_packet)
+        if FINFlag in packet:
+            self.handle_incoming_fin(packet, next_state=CLOSED)
+        else:
+            self.process_on_control_block(packet)
+            self.send_ack_for_packet_only_if_it_has_payload(packet)
             
     def handle_incoming_on_close_wait(self, packet):
         # We should ignore everything here since the other side has closed its
@@ -451,6 +455,7 @@ class PTCProtocol(object):
     def free(self):
         self.control_block.flush_buffers()
         self.stop_threads()
-        # Esto es por si falló el establecimiento de conexión (para destrabar al thread principal)
+        # In case connection establishment failed, this will unlock the main
+        # thread.
         self.connected_event.set()
         self.set_state(CLOSED)

@@ -27,12 +27,12 @@ class ControlBlockTest(PTCTestCase):
         snd_wl2 = self.control_block.get_snd_wl2()        
         usable_window_size = self.control_block.usable_window_size()
         
-        self.assertEqual(snd_nxt, snd_una)
-        self.assertEqual(snd_nxt, self.DEFAULT_ISS)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS)
-        self.assertEqual(snd_wl1, self.DEFAULT_IRS)
-        self.assertEqual(snd_wl2, self.DEFAULT_ISS)                
-        self.assertEqual(usable_window_size, self.DEFAULT_IW)
+        self.assertEquals(snd_nxt, snd_una)
+        self.assertEquals(self.DEFAULT_ISS, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS, rcv_nxt)
+        self.assertEquals(self.DEFAULT_IRS, snd_wl1)
+        self.assertEquals(self.DEFAULT_ISS, snd_wl2)                
+        self.assertEquals(self.DEFAULT_IW, usable_window_size)
         self.assertFalse(self.control_block.has_data_to_send())
         
     def test_new_data_to_send(self):
@@ -42,12 +42,12 @@ class ControlBlockTest(PTCTestCase):
         snd_una = self.control_block.get_snd_una()
         usable_window_size = self.control_block.usable_window_size()
         
-        self.assertEqual(snd_nxt, snd_una)
-        self.assertEqual(snd_una, self.DEFAULT_ISS)
-        self.assertEqual(usable_window_size, self.DEFAULT_IW)
+        self.assertEquals(snd_nxt, snd_una)
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(self.DEFAULT_IW, usable_window_size)
         self.assertTrue(self.control_block.has_data_to_send())
         
-    def test_extracting_outgoing_data(self):
+    def test_extraction_of_outgoing_data(self):
         data = self.DEFAULT_DATA
         self.control_block.to_out_buffer(data)
         to_send = self.control_block.extract_from_out_buffer(self.MSS)
@@ -55,18 +55,18 @@ class ControlBlockTest(PTCTestCase):
         snd_una = self.control_block.get_snd_una()
         usable_window_size = self.control_block.usable_window_size()
         
-        self.assertEqual(snd_una, self.DEFAULT_ISS)
-        self.assertEqual(snd_nxt, self.DEFAULT_ISS + len(to_send))
-        self.assertEqual(usable_window_size, self.DEFAULT_IW - len(to_send))
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(self.DEFAULT_ISS + len(to_send), snd_nxt)
+        self.assertEquals(self.DEFAULT_IW - len(to_send), usable_window_size)
         
         to_send = self.control_block.extract_from_out_buffer(self.MSS)
         snd_nxt = self.control_block.get_snd_nxt()
         snd_una = self.control_block.get_snd_una()
         usable_window_size = self.control_block.usable_window_size()
         
-        self.assertEqual(snd_una, self.DEFAULT_ISS)
-        self.assertEqual(snd_nxt, self.DEFAULT_ISS + len(data))
-        self.assertEqual(usable_window_size, self.DEFAULT_IW - len(data))
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(self.DEFAULT_ISS + len(data), snd_nxt)
+        self.assertEquals(self.DEFAULT_IW - len(data), usable_window_size)
         self.assertLess(len(to_send), self.MSS)
         self.assertFalse(self.control_block.has_data_to_send())
         
@@ -81,11 +81,11 @@ class ControlBlockTest(PTCTestCase):
         snd_una = self.control_block.get_snd_una()
         usable_window_size = self.control_block.usable_window_size()
         
-        self.assertEqual(snd_nxt, snd_una + self.DEFAULT_IW)
-        self.assertEqual(usable_window_size, 0)
-        self.assertEqual(len(to_send), self.DEFAULT_IW)
+        self.assertEquals(snd_una + self.DEFAULT_IW, snd_nxt)
+        self.assertEquals(0, usable_window_size)
+        self.assertEquals(self.DEFAULT_IW, len(to_send))
 
-    def test_receiving_valid_ack(self):
+    def test_reception_of_valid_ack(self):
         size = 100
         ack_number = self.DEFAULT_ISS + size
         ack_packet = self.packet_builder.build(flags=[ACKFlag],
@@ -99,11 +99,11 @@ class ControlBlockTest(PTCTestCase):
         snd_nxt = self.control_block.get_snd_nxt()
         rcv_nxt = self.control_block.get_rcv_nxt()
         
-        self.assertEqual(snd_una, ack_number)
-        self.assertEqual(snd_nxt, ack_number)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS)        
+        self.assertEquals(ack_number, snd_una)
+        self.assertEquals(ack_number, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS, rcv_nxt)        
     
-    def test_receiving_invalid_ack_greater_than_snd_nxt(self):
+    def test_reception_of_invalid_ack_greater_than_snd_nxt(self):
         size = 100
         offset = 50
         
@@ -120,13 +120,13 @@ class ControlBlockTest(PTCTestCase):
         rcv_nxt = self.control_block.get_rcv_nxt()
         snd_wnd = self.control_block.get_snd_wnd()
         
-        self.assertEqual(snd_una, self.DEFAULT_ISS)
-        self.assertEqual(snd_nxt, ack_number - offset)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS)
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(ack_number - offset, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS, rcv_nxt)
         # Window should not be updated when receiving invalid ACKs.
-        self.assertEqual(snd_wnd, self.DEFAULT_IW)
+        self.assertEquals(self.DEFAULT_IW, snd_wnd)
         
-    def test_receiving_invalid_ack_lesser_than_snd_una(self):
+    def test_reception_of_invalid_ack_lesser_than_snd_una(self):
         size = 100
         offset = 50
         
@@ -143,13 +143,13 @@ class ControlBlockTest(PTCTestCase):
         rcv_nxt = self.control_block.get_rcv_nxt()
         snd_wnd = self.control_block.get_snd_wnd()
         
-        self.assertEqual(snd_una, self.DEFAULT_ISS)
-        self.assertEqual(snd_nxt, self.DEFAULT_ISS + size)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS)
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(self.DEFAULT_ISS + size, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS, rcv_nxt)
         # Window should not be updated when receiving invalid ACKs.
-        self.assertEqual(snd_wnd, self.DEFAULT_IW)      
+        self.assertEquals(self.DEFAULT_IW, snd_wnd)      
     
-    def test_receiving_window_update(self):
+    def test_reception_of_window_update(self):
         size = 100
         new_window = self.DEFAULT_IW - 200 
         ack_number = self.DEFAULT_ISS + size
@@ -168,14 +168,14 @@ class ControlBlockTest(PTCTestCase):
         snd_wl1 = self.control_block.get_snd_wl1()
         snd_wl2 = self.control_block.get_snd_wl2()
         
-        self.assertEqual(snd_una, ack_number)
-        self.assertEqual(snd_nxt, ack_number)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS)
-        self.assertEqual(snd_wnd, new_window)
-        self.assertEqual(snd_wl1, self.DEFAULT_IRS)
-        self.assertEqual(snd_wl2, ack_number)
+        self.assertEquals(ack_number, snd_una)
+        self.assertEquals(ack_number, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS, rcv_nxt)
+        self.assertEquals(new_window, snd_wnd)
+        self.assertEquals(self.DEFAULT_IRS, snd_wl1)
+        self.assertEquals(ack_number, snd_wl2)
 
-    def test_receiving_new_data(self):
+    def test_reception_of_new_data(self):
         size = 100
         payload = self.DEFAULT_DATA[:size]
         ack_number = self.DEFAULT_ISS
@@ -191,12 +191,12 @@ class ControlBlockTest(PTCTestCase):
         rcv_nxt = self.control_block.get_rcv_nxt()
         data = self.control_block.from_in_buffer(size)
         
-        self.assertEqual(snd_una, self.DEFAULT_ISS)
-        self.assertEqual(snd_nxt, snd_una)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS + size)
-        self.assertEqual(data, payload)
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(snd_una, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS + size, rcv_nxt)
+        self.assertEquals(payload, data)
     
-    def test_receiving_new_data_partially_overlapping_window(self):
+    def test_reception_of_new_data_partially_overlapping_window_to_the_right(self):
         size = 100
         offset = 50
         payload = self.DEFAULT_DATA[:size]
@@ -213,11 +213,79 @@ class ControlBlockTest(PTCTestCase):
         snd_nxt = self.control_block.get_snd_nxt()
         rcv_nxt = self.control_block.get_rcv_nxt()
         
-        self.assertEqual(snd_una, self.DEFAULT_ISS)
-        self.assertEqual(snd_nxt, snd_una)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS)
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(snd_una, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS, rcv_nxt)
         
-    def test_receiving_new_data_after_processing_contiguous_chunks(self):
+        # Send the first chunk in order to retrieve the data after.
+        custom_data = 'x' * (self.DEFAULT_IW - offset)
+        expected_data = custom_data + payload[:offset]
+        packet = self.packet_builder.build(flags=[ACKFlag],
+                                           seq=self.DEFAULT_IRS,
+                                           ack=self.DEFAULT_ISS,
+                                           payload=custom_data)
+        
+        self.control_block.process_incoming(packet)
+        size = len(custom_data) + len(payload)
+        data = self.control_block.from_in_buffer(size)
+        
+        self.assertEquals(len(expected_data), len(data))
+        self.assertEquals(expected_data, data)
+        
+    def test_reception_of_new_data_partially_overlapping_window_to_the_left(self):
+        size = 100
+        offset = 50
+        payload = self.DEFAULT_DATA[:size]
+        ack_number = self.DEFAULT_ISS
+        seq_number = self.DEFAULT_IRS - offset
+        packet = self.packet_builder.build(flags=[ACKFlag],
+                                           seq=seq_number,
+                                           ack=ack_number,
+                                           payload=payload)
+        
+        self.control_block.process_incoming(packet)
+        
+        snd_una = self.control_block.get_snd_una()
+        snd_nxt = self.control_block.get_snd_nxt()
+        rcv_nxt = self.control_block.get_rcv_nxt()
+        data = self.control_block.from_in_buffer(size)
+        # First <offset> bytes should be ignored since they fall outside
+        # RCV_WND.
+        expected_data = payload[offset:]
+        expected_size = size - offset
+        
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(snd_nxt, snd_una)
+        self.assertEquals(self.DEFAULT_IRS + expected_size, rcv_nxt)
+        self.assertEquals(expected_size, len(data))
+        self.assertEquals(expected_data, data)
+        
+    def test_update_rcv_wnd(self):
+        size = 100
+        payload = self.DEFAULT_DATA[:size]
+        packet = self.packet_builder.build(flags=[ACKFlag],
+                                           seq=self.DEFAULT_IRS,
+                                           ack=self.DEFAULT_ISS,
+                                           payload=payload)
+        
+        self.control_block.process_incoming(packet)
+        
+        rcv_nxt = self.control_block.get_rcv_nxt()
+        rcv_wnd = self.control_block.get_rcv_wnd()
+        
+        self.assertEquals(self.DEFAULT_IRS + size, rcv_nxt)
+        # RCV_WND should take into account the payload just processed.
+        self.assertEquals(self.DEFAULT_IW - size, rcv_wnd)
+        
+        data = self.control_block.from_in_buffer(size)
+        rcv_wnd = self.control_block.get_rcv_wnd()        
+        
+        # Once this payload is consumed, RCV_WND should grow again.
+        self.assertEquals(self.DEFAULT_IW, rcv_wnd)
+        self.assertEquals(size, len(data))
+        self.assertEquals(data, payload)                
+        
+    def test_reception_of_new_data_after_processing_contiguous_chunks(self):
         size = 100
         offset = 50
         payload = self.DEFAULT_DATA[:size]
@@ -241,12 +309,12 @@ class ControlBlockTest(PTCTestCase):
         rcv_nxt = self.control_block.get_rcv_nxt()
         data = self.control_block.from_in_buffer(size)
         
-        self.assertEqual(snd_una, self.DEFAULT_ISS)
-        self.assertEqual(snd_nxt, snd_una)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS + size)
-        self.assertEqual(data, payload)
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(snd_una, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS + size, rcv_nxt)
+        self.assertEquals(payload, data)
     
-    def test_receiving_new_data_outside_window(self):
+    def test_reception_of_new_data_outside_window(self):
         size = 100
         offset = 50
         payload = self.DEFAULT_DATA[:size]
@@ -265,9 +333,9 @@ class ControlBlockTest(PTCTestCase):
         snd_nxt = self.control_block.get_snd_nxt()
         rcv_nxt = self.control_block.get_rcv_nxt()
         
-        self.assertEqual(snd_una, self.DEFAULT_ISS)
-        self.assertEqual(snd_nxt, snd_una)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS)
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(snd_una, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS, rcv_nxt)
         self.assertFalse(self.control_block.payload_is_accepted(packet))
         
         # 2. Data ends below RCV_NXT
@@ -284,12 +352,12 @@ class ControlBlockTest(PTCTestCase):
         snd_nxt = self.control_block.get_snd_nxt()
         rcv_nxt = self.control_block.get_rcv_nxt()
         
-        self.assertEqual(snd_una, self.DEFAULT_ISS)
-        self.assertEqual(snd_nxt, snd_una)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS)
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(snd_una, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS, rcv_nxt)
         self.assertFalse(self.control_block.payload_is_accepted(packet))        
     
-    def test_receiving_new_data_with_piggybacked_ack(self):
+    def test_reception_of_new_data_with_piggybacked_ack(self):
         size = 100
         payload = self.DEFAULT_DATA[:size]
         ack_number = self.DEFAULT_ISS + size
@@ -306,12 +374,12 @@ class ControlBlockTest(PTCTestCase):
         rcv_nxt = self.control_block.get_rcv_nxt()
         data = self.control_block.from_in_buffer(size)
         
-        self.assertEqual(snd_una, ack_number)
-        self.assertEqual(snd_nxt, ack_number)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS + size)
-        self.assertEqual(data, payload)
+        self.assertEquals(ack_number, snd_una)
+        self.assertEquals(ack_number, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS + size, rcv_nxt)
+        self.assertEquals(payload, data)
     
-    def test_extracting_incoming_data(self):
+    def test_extraction_of_incoming_data(self):
         size = 100
         rcv_size = 50
         payload = self.DEFAULT_DATA[:size]
@@ -329,9 +397,9 @@ class ControlBlockTest(PTCTestCase):
         snd_nxt = self.control_block.get_snd_nxt()
         rcv_nxt = self.control_block.get_rcv_nxt()
         
-        self.assertEqual(snd_una, self.DEFAULT_ISS)
-        self.assertEqual(snd_nxt, snd_una)
-        self.assertEqual(rcv_nxt, self.DEFAULT_IRS + size)
-        self.assertEqual(data1, payload[:rcv_size])
-        self.assertEqual(data2, payload[rcv_size:])
+        self.assertEquals(self.DEFAULT_ISS, snd_una)
+        self.assertEquals(snd_una, snd_nxt)
+        self.assertEquals(self.DEFAULT_IRS + size, rcv_nxt)
+        self.assertEquals(payload[:rcv_size], data1)
+        self.assertEquals(payload[rcv_size:], data2)
                 
