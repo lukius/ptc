@@ -28,12 +28,38 @@ class PTCThread(threading.Thread):
     
 class Clock(PTCThread):
     
+    def __init__(self, protocol):
+        self.timer = None
+        self.condition = threading.Condition()
+        PTCThread.__init__(self, protocol)
+        
+    def stop(self):
+        PTCThread.stop(self)
+        # Unlock clock thread if the stop call is issued inside
+        # self.protocol.tick().
+        self.end_timer()
+
+    def wait_until_previous_timer_ends(self):
+        with self.condition:
+            if self.timer is not None:
+                self.condition.wait()
+
+    def end_timer(self):
+        with self.condition:
+            self.timer = None
+            self.condition.notify()
+
     def do_run(self):
-        timer = threading.Timer(CLOCK_TICK, self.tick)
-        timer.start()
+        self.wait_until_previous_timer_ends()
+        self.timer = threading.Timer(CLOCK_TICK, self.tick)
+        self.timer.start()
         
     def tick(self):
-        self.protocol.tick()
+        if self.should_run():
+            # Avoid doing anything if we were told to stop just after this
+            # timer was created.
+            self.protocol.tick()
+        self.end_timer()
     
         
 class PacketReceiver(PTCThread):
