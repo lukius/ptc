@@ -14,7 +14,7 @@ import thread
 from constants import MSS, CLOSED, SYN_RCVD, ESTABLISHED, SYN_SENT,\
                       LISTEN, FIN_WAIT1, FIN_WAIT2, MAX_SEQ,\
                       MAX_RETRANSMISSION_ATTEMPTS, SHUT_RD, SHUT_WR,\
-                      SHUT_RDWR, CLOSE_WAIT, LAST_ACK
+                      SHUT_RDWR, CLOSE_WAIT, LAST_ACK, CLOSING
 from exceptions import WriteStreamClosedException
 from packet import ACKFlag, FINFlag, SYNFlag
 
@@ -354,6 +354,8 @@ class PTCProtocol(object):
                     self.handle_incoming_on_close_wait(packet)
                 elif self.state == LAST_ACK:
                     self.handle_incoming_on_last_ack(packet)
+                elif self.state == CLOSING:
+                    self.handle_incoming_on_closing(packet)                    
                 self.acknowledge_packets_on_retransmission_queue_with(packet)
     
     def handle_incoming_on_listen(self, packet):
@@ -429,6 +431,13 @@ class PTCProtocol(object):
         if self.control_block.ack_is_accepted(ack_number):
             # It can only be the ACK to our FIN packet previously sent.
             self.set_state(FIN_WAIT2)
+            if FINFlag in packet:
+                self.handle_incoming_fin(packet, next_state=CLOSED)
+        else:
+            # Check if it is a FIN packet, meaning that our peer closed
+            # its write stream simultaneously.
+            if FINFlag in packet:
+                self.handle_incoming_fin(packet, next_state=CLOSING)
             
     def handle_incoming_on_fin_wait2(self, packet):
         # TODO: what if read stream is closed here?
@@ -443,10 +452,17 @@ class PTCProtocol(object):
         # write stream.
         pass
     
-    def handle_incoming_on_last_ack(self, packet):
+    def set_closed_if_packet_acknowledges_fin(self, packet):
+        # Move to CLOSED only if this packet ACKs the FIN we sent before.
         ack_number = packet.get_ack_number()
         if self.control_block.ack_is_accepted(ack_number):
             self.set_state(CLOSED)
+    
+    def handle_incoming_on_last_ack(self, packet):
+        self.set_closed_if_packet_acknowledges_fin(packet)
+            
+    def handle_incoming_on_closing(self, packet):
+        self.set_closed_if_packet_acknowledges_fin(packet)
         
     def shutdown(self, how):
         if how == SHUT_RD:
