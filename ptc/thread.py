@@ -9,7 +9,7 @@ class PTCThread(threading.Thread):
     def __init__(self, protocol):
         threading.Thread.__init__(self)
         self.protocol = protocol
-        self.setDaemon(True)
+        self.setDaemon(False)
         self.keep_running = True
         
     def run(self):

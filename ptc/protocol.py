@@ -33,6 +33,7 @@ class PTCControlBlock(object):
         self.snd_wl2 = seqnum.SequenceNumber(send_seq)
         self.in_buffer = buffer.DataBuffer(start_index=self.irs)
         self.out_buffer = buffer.DataBuffer(start_index=self.iss)
+        self.lock = threading.RLock()
         
     def get_snd_nxt(self):
         return self.snd_nxt
@@ -126,7 +127,8 @@ class PTCControlBlock(object):
     def from_in_buffer(self, size):
         data = self.in_buffer.get(size)
         # Window should grow now, since data has been consumed.
-        self.rcv_wnd += len(data)
+        with self:
+            self.rcv_wnd += len(data)
         return data
     
     def extract_from_out_buffer(self, size):
@@ -139,6 +141,12 @@ class PTCControlBlock(object):
     def flush_buffers(self):
         self.in_buffer.flush()
         self.out_buffer.flush()
+        
+    def __enter__(self, *args, **kwargs):
+        return self.lock.__enter__(*args, **kwargs)
+    
+    def __exit__(self, *args, **kwargs):
+        return self.lock.__exit__(*args, **kwargs)        
     
 
 class PTCProtocol(object):
@@ -169,9 +177,12 @@ class PTCProtocol(object):
         
     def stop_threads(self):
         self.packet_receiver.stop()
+        self.packet_receiver.join()
         self.packet_sender.stop()
         self.packet_sender.notify()
+        self.packet_sender.join()
         self.clock.stop()
+        self.clock.join()
         
     def set_state(self, state):
         self.state = state
@@ -244,10 +255,11 @@ class PTCProtocol(object):
         self.connected_event.wait()        
         
     def send(self, data):
-        if not self.write_stream_open:
-            raise WriteStreamClosedException
-        self.control_block.to_out_buffer(data)
-        self.packet_sender.notify()
+        with self.control_block:
+            if not self.write_stream_open:
+                raise WriteStreamClosedException
+            self.control_block.to_out_buffer(data)
+            self.packet_sender.notify()
         
     def receive(self, size):
         return self.control_block.from_in_buffer(size)
@@ -287,15 +299,16 @@ class PTCProtocol(object):
             # When connection is still not established, we don't have 
             # anything to send.
             return
-        if self.write_stream_open or self.control_block.has_data_to_send():
-            self.attempt_to_send_data()
-        else:
-            # Send FIN when:
-            #   * Write stream is closed,
-            #   * State is ESTABLISHED/CLOSE_WAIT
-            #     (i.e., FIN was not yet sent), and
-            #   * Every outgoing byte was successfully acknowledged.
-            self.attempt_to_send_FIN()
+        with self.control_block:
+            if self.write_stream_open or self.control_block.has_data_to_send():
+                self.attempt_to_send_data()
+            else:
+                # Send FIN when:
+                #   * Write stream is closed,
+                #   * State is ESTABLISHED/CLOSE_WAIT
+                #     (i.e., FIN was not yet sent), and
+                #   * Every outgoing byte was successfully acknowledged.
+                self.attempt_to_send_FIN()
             
     def attempt_to_send_data(self):
         window_closed = False
@@ -322,25 +335,26 @@ class PTCProtocol(object):
     def handle_incoming(self, packet):
         if self.state == LISTEN:
             self.handle_incoming_on_listen(packet)
+        elif self.state == SYN_SENT:
+            self.handle_incoming_on_syn_sent(packet)
         else:
             if ACKFlag not in packet:
                 # Ignore packets not following protocol specification.
                 return
-            if self.state == SYN_SENT:
-                self.handle_incoming_on_syn_sent(packet)
-            elif self.state == SYN_RCVD:
-                self.handle_incoming_on_syn_rcvd(packet)
-            elif self.state == ESTABLISHED:
-                self.handle_incoming_on_established(packet)
-            elif self.state == FIN_WAIT1:
-                self.handle_incoming_on_fin_wait1(packet)
-            elif self.state == FIN_WAIT2:
-                self.handle_incoming_on_fin_wait2(packet)                
-            elif self.state == CLOSE_WAIT:
-                self.handle_incoming_on_close_wait(packet)
-            elif self.state == LAST_ACK:
-                self.handle_incoming_on_last_ack(packet)
-            self.acknowledge_packets_on_retransmission_queue_with(packet)
+            with self.control_block:
+                if self.state == SYN_RCVD:
+                    self.handle_incoming_on_syn_rcvd(packet)
+                elif self.state == ESTABLISHED:
+                    self.handle_incoming_on_established(packet)
+                elif self.state == FIN_WAIT1:
+                    self.handle_incoming_on_fin_wait1(packet)
+                elif self.state == FIN_WAIT2:
+                    self.handle_incoming_on_fin_wait2(packet)                
+                elif self.state == CLOSE_WAIT:
+                    self.handle_incoming_on_close_wait(packet)
+                elif self.state == LAST_ACK:
+                    self.handle_incoming_on_last_ack(packet)
+                self.acknowledge_packets_on_retransmission_queue_with(packet)
     
     def handle_incoming_on_listen(self, packet):
         if SYNFlag in packet:
@@ -354,7 +368,7 @@ class PTCProtocol(object):
             self.socket.send(syn_ack_packet)
             
     def handle_incoming_on_syn_sent(self, packet):
-        if SYNFlag not in packet:
+        if SYNFlag not in packet or ACKFlag not in packet:
             return
         ack_number = packet.get_ack_number()
         expected_ack = self.iss
@@ -400,7 +414,7 @@ class PTCProtocol(object):
     def handle_incoming_on_established(self, packet):
         if FINFlag in packet:
             self.handle_incoming_fin(packet, next_state=CLOSE_WAIT)
-        else:        
+        else:
             self.process_on_control_block(packet)
             if not self.control_block.has_data_to_send():
                 # If some data is about to be sent, then just piggyback the ACK
