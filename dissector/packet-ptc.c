@@ -37,6 +37,7 @@ static gint hf_ptc_ndt_flag = -1;
 static gint hf_ptc_seq = -1;
 static gint hf_ptc_ack = -1;
 static gint hf_ptc_window = -1;
+static gint hf_ptc_data = -1;
 
 static gint ett_ptc = -1;
 
@@ -85,6 +86,9 @@ void proto_register_ptc (void)
 
 		{ &hf_ptc_window,
 		{ "Window", "ptc.window", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+
+		{ &hf_ptc_data,
+		{ "Payload", "ptc.data", FT_BYTES, BASE_NONE, NULL, 0x0, NULL, HFILL }},
 	};
 
 	static gint *ett[] =
@@ -92,9 +96,9 @@ void proto_register_ptc (void)
         	&ett_ptc
 	};
     
-	proto_ptc = proto_register_protocol ("PTC Protocol", "PTC", "ptc");
-	proto_register_field_array (proto_ptc, hf, array_length (hf));
-	proto_register_subtree_array (ett, array_length (ett));
+	proto_ptc = proto_register_protocol("PTC Protocol", "PTC", "ptc");
+	proto_register_field_array(proto_ptc, hf, array_length (hf));
+	proto_register_subtree_array(ett, array_length(ett));
 	register_dissector("ptc", dissect_ptc, proto_ptc);
 }
 	
@@ -103,7 +107,7 @@ static void
 dissect_ptc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
 
-	gint offset = 0;
+	gint offset = 0, payload_size;
 	guint16 iflags, srcport, dstport, window;
 	guint32 seq, ack;
 	char flags[20] = "";
@@ -122,12 +126,12 @@ dissect_ptc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	if( iflags & SYN_FLAG_MASK )
 		strcpy(flags, "SYN");
-    	if( iflags & ACK_FLAG_MASK )
+    	if( iflags & FIN_FLAG_MASK )
     	{
 		if( strlen(flags) > 0 )
-                	strcat(flags, ",ACK");
+                	strcat(flags, ",FIN");
 		else
-			strcpy(flags, "ACK");
+			strcpy(flags, "FIN");
     	}
     	if( iflags & RST_FLAG_MASK )
     	{
@@ -136,12 +140,12 @@ dissect_ptc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
                 else
                         strcpy(flags, "RST");
     	}
-    	if( iflags & FIN_FLAG_MASK )
+    	if( iflags & ACK_FLAG_MASK )
     	{
                 if( strlen(flags) > 0 )
-                        strcat(flags, ",FIN");
+                        strcat(flags, ",ACK");
                 else
-                        strcpy(flags, "FIN");
+                        strcpy(flags, "ACK");
     	}
     	if( iflags & NDT_FLAG_MASK )
     	{
@@ -186,5 +190,10 @@ dissect_ptc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		offset += 2;
         
 	        proto_tree_add_item(ptc_tree, hf_ptc_window, tvb, offset, 2, ENC_BIG_ENDIAN);
+		offset += 2;
+
+		payload_size = tvb_length_remaining(tvb, offset);
+		if(payload_size > 0)
+			proto_tree_add_item(ptc_tree, hf_ptc_data, tvb, offset, payload_size, ENC_NA);
 	}
 }	
