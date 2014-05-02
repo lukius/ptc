@@ -10,11 +10,6 @@
 
 #define PROTO_TAG_PTC "PTC"
 
-#define FIN_FLAG 0x08
-#define SYN_FLAG 0x10
-#define RST_FLAG 0x20
-#define NDT_FLAG 0x40
-#define ACK_FLAG 0x80
 #define PTC_HEADER_LEN 16
 
 #define FIN_FLAG_MASK 0x01
@@ -63,30 +58,30 @@ void proto_register_ptc (void)
 	{
 		{ &hf_ptc_srcport,
 		{ "Src Port", "ptc.srcport", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-        
+
 		{ &hf_ptc_dstport,
 		{ "Dst Port", "ptc.dstport", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-        
-        	{ &hf_ptc_fin_flag,
-        	{ "FIN", "ptc.flags.fin", FT_BOOLEAN, 8, NULL, FIN_FLAG,  NULL, HFILL }},
-        
-        	{ &hf_ptc_syn_flag,
-        	{ "SYN", "ptc.flags.syn", FT_BOOLEAN, 8, NULL, SYN_FLAG,  NULL, HFILL }},
-        
-        	{ &hf_ptc_ack_flag,
-        	{ "ACK", "ptc.flags.ack", FT_BOOLEAN, 8, NULL, ACK_FLAG,  NULL, HFILL }},
-        
-        	{ &hf_ptc_rst_flag,
-        	{ "RST", "ptc.flags.rst", FT_BOOLEAN, 8, NULL, RST_FLAG,  NULL, HFILL }},
-        
-        	{ &hf_ptc_ndt_flag,
-        	{ "NDT", "ptc.flags.ndt", FT_BOOLEAN, 8, NULL, NDT_FLAG,  NULL, HFILL }},        
-        
+
 		{ &hf_ptc_seq,
 		{ "SEQ Number", "ptc.seq", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-		
-        	{ &hf_ptc_ack,
-        	{ "ACK Number", "ptc.ack", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+
+		{ &hf_ptc_ack,
+		{ "ACK Number", "ptc.ack", FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+        
+		{ &hf_ptc_fin_flag,
+		{ "FIN", "ptc.flags.fin", FT_BOOLEAN, 16, NULL, FIN_FLAG_MASK,  NULL, HFILL }},
+        
+		{ &hf_ptc_syn_flag,
+		{ "SYN", "ptc.flags.syn", FT_BOOLEAN, 16, NULL, SYN_FLAG_MASK,  NULL, HFILL }},
+        
+		{ &hf_ptc_ack_flag,
+		{ "ACK", "ptc.flags.ack", FT_BOOLEAN, 16, NULL, ACK_FLAG_MASK,  NULL, HFILL }},
+        
+		{ &hf_ptc_rst_flag,
+		{ "RST", "ptc.flags.rst", FT_BOOLEAN, 16, NULL, RST_FLAG_MASK,  NULL, HFILL }},
+        
+		{ &hf_ptc_ndt_flag,
+		{ "NDT", "ptc.flags.ndt", FT_BOOLEAN, 16, NULL, NDT_FLAG_MASK,  NULL, HFILL }},
 
 		{ &hf_ptc_window,
 		{ "Window", "ptc.window", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
@@ -159,7 +154,7 @@ dissect_ptc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 
 	if(check_col(pinfo->cinfo, COL_INFO))
 	{
-		col_add_fstr(pinfo->cinfo, COL_INFO, "%d > %d [%s] [#SEQ: %d, #ACK: %d, WND: %d]",
+		col_add_fstr(pinfo->cinfo, COL_INFO, "%u > %u [%s] [#SEQ: %u, #ACK: %u, WND: %u]",
 		srcport, dstport, flags, seq, ack, window);
 	}
 
@@ -183,11 +178,11 @@ dissect_ptc(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 		proto_tree_add_item(ptc_tree, hf_ptc_ack, tvb, offset, 4, ENC_BIG_ENDIAN);
 		offset += 4;
 
-		proto_tree_add_item(ptc_tree, hf_ptc_ack_flag, tvb, offset, 1, ENC_BIG_ENDIAN);
-		proto_tree_add_item(ptc_tree, hf_ptc_ndt_flag, tvb, offset, 1, ENC_BIG_ENDIAN);
-		proto_tree_add_item(ptc_tree, hf_ptc_rst_flag, tvb, offset, 1, ENC_BIG_ENDIAN);
-		proto_tree_add_item(ptc_tree, hf_ptc_syn_flag, tvb, offset, 1, ENC_BIG_ENDIAN);
-		proto_tree_add_item(ptc_tree, hf_ptc_fin_flag, tvb, offset, 1, ENC_BIG_ENDIAN);
+		proto_tree_add_item(ptc_tree, hf_ptc_ack_flag, tvb, offset, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_item(ptc_tree, hf_ptc_ndt_flag, tvb, offset, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_item(ptc_tree, hf_ptc_rst_flag, tvb, offset, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_item(ptc_tree, hf_ptc_syn_flag, tvb, offset, 2, ENC_BIG_ENDIAN);
+		proto_tree_add_item(ptc_tree, hf_ptc_fin_flag, tvb, offset, 2, ENC_BIG_ENDIAN);
 		offset += 2;
         
 	        proto_tree_add_item(ptc_tree, hf_ptc_window, tvb, offset, 2, ENC_BIG_ENDIAN);
