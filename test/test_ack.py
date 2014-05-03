@@ -108,3 +108,26 @@ class ACKTest(ConnectedSocketTestCase):
         self.send(packet)
         
         self.assertRaises(socket.timeout, self.receive, self.DEFAULT_TIMEOUT)
+        
+    def test_send_window_update_after_recv(self):
+        size = 10
+        data = self.DEFAULT_DATA[:size]        
+        packet = self.packet_builder.build(payload=data,
+                                           flags=[ACKFlag],
+                                           seq=self.DEFAULT_IRS,
+                                           ack=self.DEFAULT_ISS,
+                                           window=self.DEFAULT_IW)
+        self.send(packet)
+        ack_packet = self.receive(self.DEFAULT_TIMEOUT)
+        window = ack_packet.get_window_size()
+        expected_ack = ack_packet.get_ack_number()
+        self.assertEquals(0, window)
+        
+        received_data = self.socket.recv(size)
+        wnd_packet = self.receive(self.DEFAULT_TIMEOUT)
+        new_window = wnd_packet.get_window_size()
+        
+        self.assertEquals(size, new_window)
+        self.assertEquals(expected_ack, wnd_packet.get_ack_number())
+        self.assertEquals(0, len(wnd_packet.get_payload()))
+        self.assertEquals(data, received_data)

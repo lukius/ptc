@@ -177,11 +177,13 @@ class PTCProtocol(object):
         
     def stop_threads(self):
         self.packet_receiver.stop()
-        self.packet_receiver.join()
         self.packet_sender.stop()
         self.packet_sender.notify()
-        self.packet_sender.join()
         self.clock.stop()
+        
+    def join_threads(self):
+        self.packet_receiver.join()
+        self.packet_sender.join()
         self.clock.join()
         
     def set_state(self, state):
@@ -262,7 +264,12 @@ class PTCProtocol(object):
             self.packet_sender.notify()
         
     def receive(self, size):
-        return self.control_block.from_in_buffer(size)
+        data = self.control_block.from_in_buffer(size)
+        updated_rcv_wnd = self.control_block.get_rcv_wnd()
+        if updated_rcv_wnd > 0:
+            wnd_packet = self.build_packet(window=updated_rcv_wnd)
+            self.socket.send(wnd_packet)
+        return data
     
     def tick(self):
         with self.rqueue:
@@ -485,6 +492,7 @@ class PTCProtocol(object):
             self.shutdown(SHUT_RDWR)
             self.close_event.wait()
         self.free()
+        self.join_threads()
             
     def free(self):
         if self.control_block is not None:
@@ -493,4 +501,7 @@ class PTCProtocol(object):
         # In case connection establishment failed, this will unlock the main
         # thread.
         self.connected_event.set()
+        # And, similarly, this will unlock the main thread if close is called
+        # and free is later invoked by some other thread, for whatever reason.
+        self.close_event.set()
         self.set_state(CLOSED)

@@ -39,6 +39,8 @@ class FINTest(ConnectedSocketTestCase):
         
         # Send stream should be working normally.
         self.socket.send(data)
+        # This is to ignore the update window packet.
+        self.receive(self.DEFAULT_TIMEOUT)
         packet = self.receive(self.DEFAULT_TIMEOUT)
         self.assertNotIn(FINFlag, packet)
         self.assertEquals(data, packet.get_payload())
@@ -108,6 +110,8 @@ class FINTest(ConnectedSocketTestCase):
         self.socket.protocol.write_stream_open = False
         self.send(ack_packet)
         data_received = self.socket.recv(size)
+        # Ignore window update triggered by the previous line.
+        self.receive(self.DEFAULT_TIMEOUT)
         
         self.assertEquals(FIN_WAIT2, self.socket.protocol.state)
         # Nothing should be sent back.

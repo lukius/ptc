@@ -98,6 +98,7 @@ class Socket(object):
         
     def free(self):
         self.protocol.free()
+        self.protocol.join_threads()
 
     def is_connected(self):
         return self.protocol.is_connected()
