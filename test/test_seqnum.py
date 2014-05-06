@@ -7,10 +7,15 @@ class SequenceNumberTest(unittest.TestCase):
     
     DEFAULT_MODULUS = 100
     
+    def get_seqnum(self, value, modulus=None):
+        if modulus is None:
+            modulus = self.DEFAULT_MODULUS
+        return SequenceNumber(value, modulus=modulus)
+    
     def setUp(self):
-        self.n = SequenceNumber(10, modulus=self.DEFAULT_MODULUS, wrapped=True)
-        self.m = SequenceNumber(50, modulus=self.DEFAULT_MODULUS)
-        self.l = SequenceNumber(99, modulus=self.DEFAULT_MODULUS)
+        self.n = self.get_seqnum(10)
+        self.m = self.get_seqnum(50)
+        self.l = self.get_seqnum(99)
     
     def test_addition(self):
         self.assertEqual(int(self.n + self.m), 60)
@@ -31,11 +36,11 @@ class SequenceNumberTest(unittest.TestCase):
         self.assertEqual(int(self.n), 99)
         
     def test_comparison(self):
-        self.assertLess(self.m, self.n)
-        self.assertLess(50, self.n)
+        self.assertLess(self.n, self.m)
+        self.assertLess(50, self.l)
         self.assertLessEqual(self.m, 50)
-        self.assertGreater(self.n, self.m)
-        self.assertGreater(self.n, 50)
+        self.assertGreater(self.m, self.n)
+        self.assertGreater(self.l, 50)
         self.assertGreaterEqual(self.m, 50)
         
         result = SequenceNumber.a_lt_b_lt_c(self.m, 70, self.l)
@@ -63,4 +68,4 @@ class SequenceNumberTest(unittest.TestCase):
         self.assertTrue(result)
         
         result = SequenceNumber.a_leq_b_leq_c(self.m, 50, self.n)
-        self.assertTrue(result)        
+        self.assertTrue(result)

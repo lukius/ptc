@@ -1,38 +1,36 @@
-# -*- coding: utf-8 -*- 
-
 import threading
 import random
 
-import buffer
-import constants
-import packet_utils
-import rqueue
-import seqnum
-import soquete
-import thread
 
+from buffer import DataBuffer
 from constants import MSS, CLOSED, SYN_RCVD, ESTABLISHED, SYN_SENT,\
                       LISTEN, FIN_WAIT1, FIN_WAIT2, MAX_SEQ,\
                       MAX_RETRANSMISSION_ATTEMPTS, SHUT_RD, SHUT_WR,\
-                      SHUT_RDWR, CLOSE_WAIT, LAST_ACK, CLOSING
+                      SHUT_RDWR, CLOSE_WAIT, LAST_ACK, CLOSING,\
+                      RECEIVE_BUFFER_SIZE
 from exceptions import WriteStreamClosedException
 from packet import ACKFlag, FINFlag, SYNFlag
+from packet_utils import PacketBuilder
+from rqueue import RetransmissionQueue
+from seqnum import SequenceNumber
+from soquete import Soquete
+from thread import Clock, PacketSender, PacketReceiver
 
 
 class PTCControlBlock(object):
     
     def __init__(self, send_seq, receive_seq, send_window, receive_window):
-        self.iss = seqnum.SequenceNumber(send_seq)
-        self.irs = seqnum.SequenceNumber(receive_seq)
+        self.iss = send_seq.clone()
+        self.irs = receive_seq.clone()
         self.snd_wnd = send_window
-        self.snd_nxt = seqnum.SequenceNumber(send_seq)
-        self.snd_una = seqnum.SequenceNumber(send_seq)
-        self.rcv_nxt = seqnum.SequenceNumber(receive_seq)
+        self.snd_nxt = send_seq.clone()
+        self.snd_una = send_seq.clone()
+        self.rcv_nxt = receive_seq.clone()
         self.rcv_wnd = receive_window
-        self.snd_wl1 = seqnum.SequenceNumber(receive_seq)
-        self.snd_wl2 = seqnum.SequenceNumber(send_seq)
-        self.in_buffer = buffer.DataBuffer(start_index=self.irs)
-        self.out_buffer = buffer.DataBuffer(start_index=self.iss)
+        self.snd_wl1 = receive_seq.clone()
+        self.snd_wl2 = send_seq.clone()
+        self.in_buffer = DataBuffer(start_index=self.irs)
+        self.out_buffer = DataBuffer(start_index=self.iss)
         self.lock = threading.RLock()
         
     def get_snd_nxt(self):
@@ -69,14 +67,13 @@ class PTCControlBlock(object):
         
     def process_payload(self, packet):    
         if self.payload_is_accepted(packet):
-            seq_number = packet.get_seq_number()
+            seq_lo, seq_hi = packet.get_seq_interval()
             payload = packet.get_payload()
-            last_byte = seq_number + len(payload)
-            lower = max(self.rcv_nxt, seq_number)
-            upper = min(self.rcv_nxt + self.rcv_wnd, last_byte)
+            lower = max(self.rcv_nxt, seq_lo)
+            upper = min(self.rcv_nxt + self.rcv_wnd, seq_hi)
             # Honor RCV_WND by dropping those bytes that go below it
             # or beyond it.
-            effective_payload = payload[lower-seq_number:upper-seq_number]
+            effective_payload = payload[lower-seq_lo:upper-seq_lo]
             self.in_buffer.add_chunk(lower, effective_payload)
             if lower == self.rcv_nxt:
                 # We should advance rcv_nxt since the lower end of the chunk
@@ -89,21 +86,21 @@ class PTCControlBlock(object):
     def process_ack(self, packet):
         ack_number = packet.get_ack_number()
         if self.ack_is_accepted(ack_number):
-            self.snd_una = seqnum.SequenceNumber(ack_number)
+            self.snd_una = ack_number
             self.update_window(packet)
         
     def ack_is_accepted(self, ack_number):
-        return seqnum.SequenceNumber.a_leq_b_leq_c(self.snd_una, ack_number,
-                                                   self.snd_nxt)
+        return SequenceNumber.a_leq_b_leq_c(self.snd_una, ack_number,
+                                            self.snd_nxt)
     
     def payload_is_accepted(self, packet):
-        first_byte = packet.get_seq_number()
-        last_byte = first_byte + len(packet.get_payload()) - 1
-        first_ok = seqnum.SequenceNumber.a_leq_b_leq_c(self.rcv_nxt,
-                                                       first_byte,
-                                                       self.rcv_nxt+self.rcv_wnd)
-        last_ok = seqnum.SequenceNumber.a_leq_b_leq_c(self.rcv_nxt, last_byte,
-                                                      self.rcv_nxt+self.rcv_wnd)
+        seq_lo, seq_hi = packet.get_seq_interval()
+        first_byte, last_byte = seq_lo, seq_hi-1
+        first_ok = SequenceNumber.a_leq_b_leq_c(self.rcv_nxt,
+                                                first_byte,
+                                                self.rcv_nxt+self.rcv_wnd)
+        last_ok = SequenceNumber.a_leq_b_leq_c(self.rcv_nxt, last_byte,
+                                               self.rcv_nxt+self.rcv_wnd)
         return last_byte >= first_byte and (first_ok or last_ok)
     
     def update_window(self, packet):
@@ -154,11 +151,11 @@ class PTCProtocol(object):
     def __init__(self):
         self.state = CLOSED
         self.control_block = None
-        self.packet_builder = packet_utils.PacketBuilder()
-        self.socket = soquete.Soquete()
-        self.rcv_wnd = constants.RECEIVE_BUFFER_SIZE        
+        self.packet_builder = PacketBuilder()
+        self.socket = Soquete()
+        self.rcv_wnd = RECEIVE_BUFFER_SIZE        
         self.iss = self.compute_iss()
-        self.rqueue = rqueue.RetransmissionQueue()
+        self.rqueue = RetransmissionQueue()
         self.retransmission_attempts = dict()
         self.read_stream_open = True
         self.write_stream_open = True
@@ -166,9 +163,9 @@ class PTCProtocol(object):
         self.initialize_threads()
         
     def initialize_threads(self):
-        self.packet_sender = thread.PacketSender(self)
-        self.packet_receiver = thread.PacketReceiver(self)
-        self.clock = thread.Clock(self)
+        self.packet_sender = PacketSender(self)
+        self.packet_receiver = PacketReceiver(self)
+        self.clock = Clock(self)
         
     def start_threads(self):
         self.packet_receiver.start()
@@ -192,7 +189,8 @@ class PTCProtocol(object):
             self.close_event.set()
     
     def compute_iss(self):
-        return random.randint(0, MAX_SEQ)
+        value = random.randint(0, MAX_SEQ)
+        return SequenceNumber(value)
         
     def initialize_control_block_from(self, packet, iss=None):
         receive_seq = packet.get_seq_number()
@@ -294,12 +292,15 @@ class PTCProtocol(object):
         return attempts
     
     def acknowledge_packets_on_retransmission_queue_with(self, packet):
-        with self.rqueue:
-            removed_packets = self.rqueue.remove_acknowledged_by(packet)
-            for removed_packet in removed_packets:
-                seq_number = removed_packet.get_seq_number()
-                if seq_number in self.retransmission_attempts:
-                    del self.retransmission_attempts[seq_number]
+        ack_number = packet.get_ack_number()
+        if self.control_block.ack_is_accepted(ack_number):
+            # Only ACK numbers less than SND_NXT are valid here.
+            with self.rqueue:
+                removed_packets = self.rqueue.remove_acknowledged_by(packet)
+                for removed_packet in removed_packets:
+                    seq_number = removed_packet.get_seq_number()
+                    if seq_number in self.retransmission_attempts:
+                        del self.retransmission_attempts[seq_number]
         
     def handle_outgoing(self):
         if self.control_block is None:

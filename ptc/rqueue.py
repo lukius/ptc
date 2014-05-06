@@ -2,6 +2,7 @@ import threading
 import time
 
 from constants import RETRANSMISSION_TIMEOUT
+from seqnum import SequenceNumber
 
 
 class RetransmissionQueue(object):
@@ -31,20 +32,20 @@ class RetransmissionQueue(object):
     def remove_acknowledged_by(self, ack_packet):
         with self.lock:
             new_queue = list()
-            packets = list()
+            acknowledged_packets = list()
             for packet_tuple in self.queue:
                 packet = packet_tuple[0]
                 ack = ack_packet.get_ack_number()
-                seq_lo = packet.get_seq_number()
-                seq_hi = seq_lo + len(packet.get_payload())
-                # TODO: won't work for wrapped ACK numbers.
-                if seq_lo <= ack and seq_hi <= ack:
-                    packets.append(packet)
+                seq_lo, seq_hi = packet.get_seq_interval()
+                # Check that ack >= seq_lo and ack >= seq_hi simultaneously,
+                # considering that any of these values may have wrapped.
+                if self.geq_than_both(ack, seq_lo, seq_hi):
+                    acknowledged_packets.append(packet)
                     self.remove_packet_from_packets_to_retransmit(packet)
                 else:
                     new_queue.append(packet_tuple)
             self.queue = new_queue
-            return packets
+            return acknowledged_packets
         
     def put(self, packet):
         with self.lock:
@@ -68,6 +69,24 @@ class RetransmissionQueue(object):
             index = None
         if index is not None:
             del self.packets_to_retransmit[index]
+            
+    def geq_than_both(self, ack, seq_lo, seq_hi):
+        # Private method to correctly compare the ACK against the SEQs.
+        if seq_lo < seq_hi and seq_lo < ack < seq_hi:
+            result = False
+        elif seq_hi < seq_lo and ack < seq_hi:
+            result = False
+        else:
+            # Case 1: seq_lo < seq_hi < ack
+            # Case 2: seq_hi < seq_lo but ack > seq_hi (here, seq_hi and ack
+            #         wrapped around)
+            # Case 3: ack < seq_lo < seq_hi (here, ack wrapped around)
+            # This last case is valid since this comparison only holds
+            # whenever ack < SND_NXT, and of course SND_NXT is greater tan both
+            # seq_lo and seq_hi, which represent sequenced bytes already sent
+            # by the protocol.
+            result = True
+        return result        
             
     def __enter__(self, *args, **kwargs):
         return self.lock.__enter__(*args, **kwargs)

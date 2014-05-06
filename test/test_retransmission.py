@@ -46,12 +46,14 @@ class RetransmissionTest(ConnectedSocketTestCase):
         self.assertFalse(self.socket.is_connected())
         
     def test_packet_removed_from_retransmission_queue_after_ack(self):
-        ack_number = self.DEFAULT_ISS + len(self.DEFAULT_DATA)
+        size = 10
+        data = self.DEFAULT_DATA[:size]
+        ack_number = self.DEFAULT_ISS + size
         ack_packet = self.packet_builder.build(flags=[ACKFlag],
                                                seq=self.DEFAULT_IRS,
                                                ack=ack_number,
                                                window=self.DEFAULT_IW)
-        self.socket.send(self.DEFAULT_DATA)
+        self.socket.send(data)
         self.receive()
         self.send(ack_packet)
         self.wait_until_total_retransmission_time_expires()
@@ -59,3 +61,17 @@ class RetransmissionTest(ConnectedSocketTestCase):
         
         self.assertGreater(MAX_RETRANSMISSION_ATTEMPTS, len(packets))
         self.assertTrue(self.socket.is_connected())
+        
+    def test_unaccepted_ack_ignored_when_updating_retransmission_queue(self):
+        ack_number = self.DEFAULT_ISS + self.DEFAULT_IW + 1
+        ack_packet = self.packet_builder.build(flags=[ACKFlag],
+                                               seq=self.DEFAULT_IRS,
+                                               ack=ack_number,
+                                               window=self.DEFAULT_IW)
+        self.socket.send(self.DEFAULT_DATA)
+        self.send(ack_packet)
+        self.wait_until_total_retransmission_time_expires()
+        packets = self.get_retransmitted_packets()
+        
+        self.assertEquals(MAX_RETRANSMISSION_ATTEMPTS, len(packets))
+        self.assertFalse(self.socket.is_connected())

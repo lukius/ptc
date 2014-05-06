@@ -2,12 +2,13 @@ from base import PTCTestCase
 from ptc import constants
 from ptc.packet import ACKFlag
 from ptc.protocol import PTCControlBlock
+from ptc.seqnum import SequenceNumber
 
 
 class ControlBlockTest(PTCTestCase):
     
-    DEFAULT_ISS = 20000
-    DEFAULT_IRS = 10000
+    DEFAULT_ISS = SequenceNumber(20000)
+    DEFAULT_IRS = SequenceNumber(10000)
     DEFAULT_IW = 64000
     DEFAULT_DATA = 'data' * 50
     MSS = 150

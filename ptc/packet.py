@@ -2,10 +2,12 @@ import random
 import struct
 import socket
 
-from constants import PROTOCOL_NUMBER
+from constants import PROTOCOL_NUMBER, MAX_SEQ, MAX_WND
+from seqnum import SequenceNumber
 
 
 class IPChecksumAlgorithm(object):
+    # Naive, inefficient implementation of the Internet checksum algorithm.
     
     @classmethod
     def for_bytes(cls, message):
@@ -165,8 +167,8 @@ class PTCTransportPacket(object):
     def __init__(self):
         self.source_port = 0
         self.destination_port = 0
-        self.seq_number = 0
-        self.ack_number = 0
+        self.seq_number = SequenceNumber(0)
+        self.ack_number = SequenceNumber(0)
         self.window_size = 0
         self.flags = set()
         self.payload = str()
@@ -187,6 +189,11 @@ class PTCTransportPacket(object):
     def get_seq_number(self):
         return self.seq_number
     
+    def get_seq_interval(self):
+        seq_lo = self.seq_number.clone()
+        seq_hi = seq_lo + len(self.payload)
+        return seq_lo, seq_hi
+
     def get_ack_number(self):
         return self.ack_number
     
@@ -215,13 +222,13 @@ class PTCTransportPacket(object):
         self.destination_port = port          
     
     def set_seq_number(self, seq_number):
-        self.seq_number = seq_number % 2**32
+        self.seq_number = SequenceNumber(seq_number)
         
     def set_ack_number(self, ack_number):
-        self.ack_number = ack_number % 2**32
+        self.ack_number = SequenceNumber(ack_number)
         
     def set_window_size(self, window_size):
-        self.window_size = window_size % 2**16
+        self.window_size = window_size % (MAX_WND+1)
         
     def set_payload(self, data):
         self.payload = data
@@ -276,6 +283,9 @@ class PTCPacket(object):
         
     def get_seq_number(self):
         return self.transport_packet.get_seq_number()
+    
+    def get_seq_interval(self):
+        return self.transport_packet.get_seq_interval()
     
     def get_ack_number(self):
         return self.transport_packet.get_ack_number()

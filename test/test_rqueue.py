@@ -1,9 +1,10 @@
 import time
 
 from base import PTCTestCase
-from ptc.constants import RETRANSMISSION_TIMEOUT
+from ptc.constants import RETRANSMISSION_TIMEOUT, MAX_SEQ
 from ptc.packet import ACKFlag
 from ptc.rqueue import RetransmissionQueue
+from ptc.seqnum import SequenceNumber
 
 
 class RetransmissionQueueTest(PTCTestCase):
@@ -83,3 +84,39 @@ class RetransmissionQueueTest(PTCTestCase):
         self.assertEquals(1, len(packets_to_retransmit))
         packet = packets_to_retransmit[0]
         self.assertEquals(packet.get_seq_number(), packet.get_seq_number())
+        
+    def test_ack_greater_than_seq_lo_and_seq_hi(self):
+        # Case 1: a=80 < b=85 < c=MAX_SEQ - 10
+        a = SequenceNumber(80)
+        b = SequenceNumber(85)
+        c = SequenceNumber(MAX_SEQ-10)
+ 
+        result = self.queue.geq_than_both(c, a, b)
+        self.assertTrue(result)
+         
+        # Case 2: c=5 < a=80 < b=98 (c has wrapped around)
+        c = SequenceNumber(5)
+ 
+        result = self.queue.geq_than_both(c, a, b)
+        self.assertTrue(result)        
+         
+        # Case 3: b=5 < c=10 < a=80 (b and c have wrapped around)
+        b = SequenceNumber(5)
+        c = SequenceNumber(10)
+         
+        result = self.queue.geq_than_both(c, a, b)
+        self.assertTrue(result)     
+         
+        # When c=1 < b=5 < a=80 (b and c have wrapped around, but c is not
+        # greater than b), it should be false.
+        c = SequenceNumber(1)
+         
+        result = self.queue.geq_than_both(c, a, b)
+        self.assertFalse(result)      
+         
+        # Same when a=80 < c=85 < b=90 (b and c have wrapped around)
+        c = SequenceNumber(85)
+        b = SequenceNumber(90)
+         
+        result = self.queue.geq_than_both(c, a, b)
+        self.assertFalse(result)        

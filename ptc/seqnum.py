@@ -1,3 +1,8 @@
+import copy
+
+from constants import MAX_SEQ
+
+
 class SequenceNumber(object):
 
     @classmethod  
@@ -8,47 +13,38 @@ class SequenceNumber(object):
     @classmethod
     def a_lt_b_lt_c(cls, a, b, c):
         cls.validate_moduli(a, c)
-        if c.wrapped and not a.wrapped:
-            return (b > a.value and b < a.modulus) or b < c.value
-        elif not c.wrapped and a.wrapped:
-            return False
+        if a > c:
+            return b > a or b < c
         else:
             return a < b < c
     
     @classmethod
     def a_leq_b_lt_c(cls, a, b, c):
         cls.validate_moduli(a, c)
-        if c.wrapped and not a.wrapped:
-            return (b >= a.value and b < a.modulus) or b < c.value
-        elif not c.wrapped and a.wrapped:
-            return False        
+        if a > c:
+            return b >= a or b < c
         else:
             return a <= b < c
     
     @classmethod
     def a_lt_b_leq_c(cls, a, b, c):
         cls.validate_moduli(a, c)
-        if c.wrapped and not a.wrapped:
-            return (b > a.value and b < a.modulus) or b <= c.value
-        elif not c.wrapped and a.wrapped:
-            return False        
+        if a > c:
+            return b > a or b <= c
         else:
             return a < b <= c
     
     @classmethod
     def a_leq_b_leq_c(cls, a, b, c):
         cls.validate_moduli(a, c)
-        if c.wrapped and not a.wrapped:
-            return (b >= a.value and b < a.modulus) or b <= c.value
-        elif not c.wrapped and a.wrapped:
-            return False        
+        if a > c:
+            return b >= a or b <= c
         else:
             return a <= b <= c
-    
-    def __init__(self, value, modulus=None, wrapped=False):
-        self.modulus = modulus if modulus is not None else 2**32
+        
+    def __init__(self, value, modulus=None):
+        self.modulus = modulus if modulus is not None else (MAX_SEQ+1)
         self.value = value % self.modulus
-        self.wrapped = wrapped
         
     def __add__(self, other):
         def addition(a, b):
@@ -79,30 +75,15 @@ class SequenceNumber(object):
         
     def __eq__(self, other):
         other = self.get_seqnum_from(other)
-        if self.wrapped and not other.wrapped:
-            return False
-        elif not self.wrapped and other.wrapped:
-            return False
-        else:
-            return self.value == other.value
+        return self.value == other.value
 
     def __lt__(self, other):
         other = self.get_seqnum_from(other)
-        if self.wrapped and not other.wrapped:
-            return False
-        elif not self.wrapped and other.wrapped:
-            return True
-        else:
-            return self.value < other.value
+        return self.value < other.value
             
     def __gt__(self, other):
         other = self.get_seqnum_from(other)
-        if self.wrapped and not other.wrapped:
-            return True
-        elif not self.wrapped and other.wrapped:
-            return False
-        else:
-            return self.value > other.value
+        return self.value > other.value
     
     def __le__(self, other):
         return self < other or self == other
@@ -128,12 +109,13 @@ class SequenceNumber(object):
     def operate_with(self, other, operation):
         other = self.get_seqnum_from(other)
         value = operation(self.value, other.value)
-        wrapped = self.wrapped or value >= self.modulus
-        value %= self.modulus
-        return self.__class__(value, modulus=self.modulus, wrapped=wrapped)
+        return self.__class__(value, modulus=self.modulus)
     
     def get_seqnum_from(self, other):        
         if not isinstance(other, self.__class__):
-            other = self.__class__(other, modulus=self.modulus, wrapped=False)
+            other = self.__class__(other, modulus=self.modulus)
         self.validate_moduli(self, other)
         return other
+    
+    def clone(self):
+        return copy.copy(self)

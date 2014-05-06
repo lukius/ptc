@@ -180,8 +180,8 @@ class PTCTestCase(unittest.TestCase):
 
 class ConnectedSocketTestCase(PTCTestCase):
     
-    DEFAULT_ISS = 20
-    DEFAULT_IRS = 10
+    DEFAULT_ISS = ptc.seqnum.SequenceNumber(20)
+    DEFAULT_IRS = ptc.seqnum.SequenceNumber(10)
     DEFAULT_IW = 10
     DEFAULT_DATA = 'data' * 5
     DEFAULT_TIMEOUT = 1
