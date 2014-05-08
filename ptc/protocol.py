@@ -20,8 +20,6 @@ from thread import Clock, PacketSender, PacketReceiver
 class PTCControlBlock(object):
     
     def __init__(self, send_seq, receive_seq, send_window, receive_window):
-        self.iss = send_seq.clone()
-        self.irs = receive_seq.clone()
         self.snd_wnd = send_window
         self.snd_nxt = send_seq.clone()
         self.snd_una = send_seq.clone()
@@ -29,8 +27,8 @@ class PTCControlBlock(object):
         self.rcv_wnd = receive_window
         self.snd_wl1 = receive_seq.clone()
         self.snd_wl2 = send_seq.clone()
-        self.in_buffer = DataBuffer(start_index=self.irs)
-        self.out_buffer = DataBuffer(start_index=self.iss)
+        self.in_buffer = DataBuffer(start_index=receive_seq.clone())
+        self.out_buffer = DataBuffer(start_index=send_seq.clone())
         self.lock = threading.RLock()
         
     def get_snd_nxt(self):
@@ -54,11 +52,9 @@ class PTCControlBlock(object):
     def get_rcv_wnd(self):
         return self.rcv_wnd
     
-    def get_iss(self):
-        return self.iss
-    
-    def get_irs(self):
-        return self.irs
+    def increment_snd_nxt(self):
+        with self:
+            self.snd_nxt += 1
         
     def process_incoming(self, packet, ignore_payload=False):
         self.process_ack(packet)
@@ -192,9 +188,10 @@ class PTCProtocol(object):
         value = random.randint(0, MAX_SEQ)
         return SequenceNumber(value)
         
-    def initialize_control_block_from(self, packet, iss=None):
-        receive_seq = packet.get_seq_number()
-        send_seq = self.iss
+    def initialize_control_block_from(self, packet):
+        # +1 since the SYN flag is also sequenced. 
+        receive_seq = 1 + packet.get_seq_number()
+        send_seq = 1 + self.iss
         send_window = packet.get_window_size()
         receive_window = self.rcv_wnd
         self.control_block = PTCControlBlock(send_seq, receive_seq,
@@ -366,7 +363,7 @@ class PTCProtocol(object):
                 elif self.state == FIN_WAIT1:
                     self.handle_incoming_on_fin_wait1(packet)
                 elif self.state == FIN_WAIT2:
-                    self.handle_incoming_on_fin_wait2(packet)                
+                    self.handle_incoming_on_fin_wait2(packet)  
                 elif self.state == CLOSE_WAIT:
                     self.handle_incoming_on_close_wait(packet)
                 elif self.state == LAST_ACK:
@@ -381,30 +378,29 @@ class PTCProtocol(object):
             self.initialize_control_block_from(packet)
             self.set_destination_on_packet_builder(packet.get_source_ip(),
                                                    packet.get_source_port())
-            syn_ack_packet = self.build_packet(flags=[SYNFlag, ACKFlag],
-                                               window=self.rcv_wnd)
-            syn_ack_packet.set_ack_number(packet.get_seq_number())
+            syn_ack_packet = self.build_packet(flags=[SYNFlag, ACKFlag])
+            # The next byte we send should be sequenced after the SYN flag.
+            self.control_block.increment_snd_nxt()
             self.socket.send(syn_ack_packet)
             
     def handle_incoming_on_syn_sent(self, packet):
         if SYNFlag not in packet or ACKFlag not in packet:
             return
         ack_number = packet.get_ack_number()
-        expected_ack = self.iss
+        # +1 since the SYN flag is also sequenced.
+        expected_ack = 1 + self.iss
         if expected_ack == ack_number:
             self.set_state(ESTABLISHED)
-            self.initialize_control_block_from(packet, iss=self.iss)
+            self.initialize_control_block_from(packet)
             self.dst_port = packet.get_source_port()
             self.dst_address = packet.get_source_ip()
             ack_packet = self.build_packet(flags=[ACKFlag])
-            ack_packet.set_ack_number(packet.get_seq_number())
             self.socket.send(ack_packet)            
             self.connected_event.set()
             
     def handle_incoming_on_syn_rcvd(self, packet):
         ack_number = packet.get_ack_number()
-        expected_ack = self.control_block.get_snd_nxt()
-        if expected_ack == ack_number:
+        if self.control_block.ack_is_accepted(ack_number):
             self.set_state(ESTABLISHED)
             self.connected_event.set()
             

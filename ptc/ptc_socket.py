@@ -55,10 +55,11 @@ class Socket(object):
             print 'accept timed out.'
             self.free()
         
+        timer = threading.Timer(timeout, timeout_handler)
         if timeout is not None:
-            timer = threading.Timer(timeout, timeout_handler)
             timer.start()
         self.protocol.accept()
+        timer.cancel()
         
     def connect(self, address_tuple, timeout=None):
         if not self.is_connected():
@@ -73,10 +74,11 @@ class Socket(object):
             print 'connect timed out.'
             self.free()
         
+        timer = threading.Timer(timeout, timeout_handler)
         if timeout is not None:
-            timer = threading.Timer(timeout, timeout_handler)
             timer.start()
         self.protocol.connect_to(*address_tuple)
+        timer.cancel()
     
     def send(self, data):
         if not self.is_connected():
