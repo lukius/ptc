@@ -29,17 +29,16 @@ class RetransmissionQueue(object):
                     new_queue.append(packet_tuple)
             self.queue = new_queue
             
-    def remove_acknowledged_by(self, ack_packet):
+    def remove_acknowledged_by(self, ack_packet, snd_una, snd_nxt):
         with self.lock:
             new_queue = list()
             acknowledged_packets = list()
             for packet_tuple in self.queue:
                 packet = packet_tuple[0]
                 ack = ack_packet.get_ack_number()
-                seq_lo, seq_hi = packet.get_seq_interval()
                 # Check that ack >= seq_lo and ack >= seq_hi simultaneously,
                 # considering that any of these values may have wrapped.
-                if self.geq_than_both(ack, seq_lo, seq_hi):
+                if self.ack_covers_packet(ack, packet, snd_una, snd_nxt):
                     acknowledged_packets.append(packet)
                     self.remove_packet_from_packets_to_retransmit(packet)
                 else:
@@ -70,23 +69,23 @@ class RetransmissionQueue(object):
         if index is not None:
             del self.packets_to_retransmit[index]
             
-    def geq_than_both(self, ack, seq_lo, seq_hi):
+    def ack_covers_packet(self, ack, packet, snd_una, snd_nxt):
         # Private method to correctly compare the ACK against the SEQs.
-        if seq_lo < seq_hi and seq_lo < ack < seq_hi:
-            result = False
-        elif seq_hi < seq_lo and ack < seq_hi:
-            result = False
+        _, seq_hi = packet.get_seq_interval()
+        if snd_nxt > snd_una:
+            # When SND_NXT > SND_UNA, there is no wrap-around.
+            # Thus, the ACK provided covers the packet iff
+            # ack > seq_hi = sequence number of the last byte.
+            return ack >= seq_hi
         else:
-            # Case 1: seq_lo < seq_hi < ack
-            # Case 2: seq_hi < seq_lo but ack > seq_hi (here, seq_hi and ack
-            #         wrapped around)
-            # Case 3: ack < seq_lo < seq_hi (here, ack wrapped around)
-            # This last case is valid since this comparison only holds
-            # whenever ack < SND_NXT, and of course SND_NXT is greater tan both
-            # seq_lo and seq_hi, which represent sequenced bytes already sent
-            # by the protocol.
-            result = True
-        return result        
+            # When SND_NXT <= SND_UNA, SND_NXT has wrapped around.
+            # So, we have two possibilities:
+            #   * seq_hi and ack have also wrapped around, and thus
+            #     we should have seq_hi <= ack <= snd_nxt
+            #   * or just ack wrapped around, which means that it is
+            #     already greater than seq_hi. 
+            return (seq_hi <= ack <= snd_nxt) or\
+                    snd_nxt < seq_hi
             
     def __enter__(self, *args, **kwargs):
         return self.lock.__enter__(*args, **kwargs)
