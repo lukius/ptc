@@ -131,7 +131,7 @@ class FINTest(ConnectedSocketTestCase):
         
         self.assertEquals(CLOSED, self.socket.protocol.state)
         self.assertIn(ACKFlag, ack_packet)
-        self.assertEquals(self.DEFAULT_IRS, ack_number)
+        self.assertEquals(1+self.DEFAULT_IRS, ack_number)
         
     def test_simultaneous_close(self):
         packet = self.packet_builder.build(flags=[FINFlag, ACKFlag],
@@ -146,7 +146,7 @@ class FINTest(ConnectedSocketTestCase):
         
         self.assertEquals(CLOSING, self.socket.protocol.state)
         self.assertIn(ACKFlag, ack_packet)
-        self.assertEquals(self.DEFAULT_IRS, ack_number)
+        self.assertEquals(1+self.DEFAULT_IRS, ack_number)
         
         packet = self.packet_builder.build(flags=[ACKFlag],
                                            seq=self.DEFAULT_IRS,
@@ -188,7 +188,7 @@ class FINTest(ConnectedSocketTestCase):
         self.assertEquals(CLOSE_WAIT, self.socket.protocol.state)
         self.assertFalse(self.socket.protocol.read_stream_open)
         self.assertEquals(self.DEFAULT_ISS, seq_number)
-        self.assertEquals(self.DEFAULT_IRS, ack_number)
+        self.assertEquals(1+self.DEFAULT_IRS, ack_number)
         self.assertEquals(0, len(ack_packet.get_payload()))
         
     def test_fin_with_unexpected_seq_number_is_ignored(self):
@@ -221,7 +221,7 @@ class FINTest(ConnectedSocketTestCase):
         self.assertEquals(CLOSED, self.socket.protocol.state)
         self.assertFalse(self.socket.protocol.read_stream_open)
         self.assertEquals(self.DEFAULT_ISS, seq_number)
-        self.assertEquals(self.DEFAULT_IRS, ack_number)
+        self.assertEquals(1+self.DEFAULT_IRS, ack_number)
         self.assertEquals(0, len(ack_packet.get_payload()))
         
     def test_ignore_packets_on_close_wait(self):
@@ -253,7 +253,7 @@ class FINTest(ConnectedSocketTestCase):
         
         ack_packet = self.packet_builder.build(flags=[ACKFlag],
                                                seq=self.DEFAULT_IRS,
-                                               ack=self.DEFAULT_ISS)
+                                               ack=1+self.DEFAULT_ISS)
         self.send(ack_packet)
         
         self.assertEquals(CLOSED, self.socket.protocol.state)

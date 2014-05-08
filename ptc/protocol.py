@@ -55,6 +55,14 @@ class PTCControlBlock(object):
     def increment_snd_nxt(self):
         with self:
             self.snd_nxt += 1
+            
+    def increment_snd_una(self):
+        with self:
+            self.snd_una += 1
+            
+    def increment_rcv_nxt(self):
+        with self:
+            self.rcv_nxt += 1
         
     def process_incoming(self, packet, ignore_payload=False):
         self.process_ack(packet)
@@ -183,6 +191,8 @@ class PTCProtocol(object):
         self.state = state
         if state == CLOSED or state == FIN_WAIT2:
             self.close_event.set()
+        if state == ESTABLISHED:
+            self.connected_event.set()
     
     def compute_iss(self):
         value = random.randint(0, MAX_SEQ)
@@ -342,6 +352,10 @@ class PTCProtocol(object):
         state_allows_closing = self.state in [ESTABLISHED, CLOSE_WAIT]
         if state_allows_closing and self.rqueue.empty():
             fin_packet = self.build_packet(flags=[ACKFlag, FINFlag])
+            # We are sending a FIN packet, and this flag is sequenced. Move
+            # forward the next byte sequence to be sent.
+            self.control_block.increment_snd_nxt()
+            self.control_block.increment_snd_una()
             new_state = FIN_WAIT1 if self.state == ESTABLISHED else LAST_ACK
             self.set_state(new_state)
             self.send_and_queue(fin_packet)
@@ -390,19 +404,20 @@ class PTCProtocol(object):
         # +1 since the SYN flag is also sequenced.
         expected_ack = 1 + self.iss
         if expected_ack == ack_number:
-            self.set_state(ESTABLISHED)
             self.initialize_control_block_from(packet)
             self.dst_port = packet.get_source_port()
             self.dst_address = packet.get_source_ip()
             ack_packet = self.build_packet(flags=[ACKFlag])
+            self.set_state(ESTABLISHED)
             self.socket.send(ack_packet)            
-            self.connected_event.set()
             
     def handle_incoming_on_syn_rcvd(self, packet):
         ack_number = packet.get_ack_number()
         if self.control_block.ack_is_accepted(ack_number):
             self.set_state(ESTABLISHED)
-            self.connected_event.set()
+            # This packet is acknowledging our SYN. We must increment SND_UNA
+            # in order to reflect this.
+            self.control_block.increment_snd_una()
             
     def handle_incoming_fin(self, packet, next_state):
         seq_number = packet.get_seq_number()
@@ -410,6 +425,9 @@ class PTCProtocol(object):
         if seq_number == self.control_block.get_rcv_nxt():
             self.set_state(next_state)
             self.read_stream_open = False
+            # The FIN flag is also sequenced, and so we must increment the next
+            # byte we expect to receive.
+            self.control_block.increment_rcv_nxt()
         # Send ACK (if the previous check fails, the ACK number will be
         # automatically set to the proper one).
         ack_packet = self.build_packet()
@@ -463,6 +481,7 @@ class PTCProtocol(object):
     def handle_incoming_on_close_wait(self, packet):
         # We should ignore everything here since the other side has closed its
         # write stream.
+        # TODO: revisar (ACKs?)
         pass
     
     def set_closed_if_packet_acknowledges_fin(self, packet):

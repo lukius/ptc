@@ -81,8 +81,15 @@ class SYNTest(PTCTestCase):
                                                seq=seq_number+1,
                                                ack=received_seq_number+1)
         self.send(ack_packet)
+        snd_nxt = server.protocol.control_block.get_snd_nxt()
+        snd_una = server.protocol.control_block.get_snd_una()
+        rcv_nxt = server.protocol.control_block.get_rcv_nxt()
         
-        # 5. Assert that the connection is established
+        # 5. Assert that the connection is established and that the control
+        # block is well configured.
+        self.assertEquals(received_seq_number+1, snd_nxt)
+        self.assertEquals(snd_nxt, snd_una)
+        self.assertEquals(seq_number+1, rcv_nxt)
         self.assertEquals(ptc.constants.ESTABLISHED, server.protocol.state)
     
     def test_client_connection(self):
@@ -101,12 +108,19 @@ class SYNTest(PTCTestCase):
                                                    seq=seq_number,
                                                    ack=received_seq_number+1)
         self.send(syn_ack_packet)
+        snd_nxt = client.protocol.control_block.get_snd_nxt()
+        snd_una = client.protocol.control_block.get_snd_una()
+        rcv_nxt = client.protocol.control_block.get_rcv_nxt()        
         
-        # 4. Receive ACK and assert that the connection is established
+        # 4. Receive ACK and assert that the connection is established and that
+        # the control block is well configured.
         ack_packet = self.receive(self.DEFAULT_TIMEOUT)
         new_seq_number  = ack_packet.get_seq_number()
         received_ack_number = ack_packet.get_ack_number()
         self.assertIn(ACKFlag, ack_packet)
         self.assertEquals(seq_number+1, received_ack_number)
         self.assertEquals(received_seq_number+1, new_seq_number)
-        self.assertEquals(ptc.constants.ESTABLISHED, client.protocol.state)        
+        self.assertEquals(received_seq_number+1, snd_nxt)
+        self.assertEquals(snd_nxt, snd_una)
+        self.assertEquals(seq_number+1, rcv_nxt)
+        self.assertEquals(ptc.constants.ESTABLISHED, client.protocol.state)
