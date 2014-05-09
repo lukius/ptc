@@ -26,7 +26,7 @@ class DataExchangeTest(ConnectedSocketTestCase):
     def test_sending_data(self):
         self.socket.send(self.DEFAULT_DATA)
         data = self.receive_data()
-        self.assertEqual(data, self.DEFAULT_DATA)
+        self.assertEqual(self.DEFAULT_DATA, data)
         
     def test_receiving_data_out_of_order(self):
         size = 9
@@ -48,7 +48,7 @@ class DataExchangeTest(ConnectedSocketTestCase):
         self.send(second_packet)
         received = self.socket.recv(len(self.DEFAULT_DATA))
         
-        self.assertEqual(received, to_send)
+        self.assertEqual(to_send, received)
     
     def test_receiving_repeated_data(self):
         size = 10
@@ -72,7 +72,7 @@ class DataExchangeTest(ConnectedSocketTestCase):
         self.send(second_packet)
         received = self.socket.recv(len(self.DEFAULT_DATA))
         
-        self.assertEqual(received, to_send)
+        self.assertEqual(to_send, received)
     
     def test_sending_and_receiving_data(self):
         size = 10
@@ -92,5 +92,5 @@ class DataExchangeTest(ConnectedSocketTestCase):
             packet = self.receive(self.DEFAULT_TIMEOUT)
         sent = packet.get_payload()
         
-        self.assertEqual(received, data)
-        self.assertEqual(sent, data)
+        self.assertEqual(data, received)
+        self.assertEqual(data, sent)

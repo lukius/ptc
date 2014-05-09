@@ -91,11 +91,13 @@ class PTCControlBlock(object):
         ack_number = packet.get_ack_number()
         if self.ack_is_accepted(ack_number):
             self.snd_una = ack_number
+        if self.should_update_window(ack_number):
             self.update_window(packet)
         
     def ack_is_accepted(self, ack_number):
-        return SequenceNumber.a_leq_b_leq_c(self.snd_una, ack_number,
-                                            self.snd_nxt)
+        # Accept only if  SND_UNA < ACK <= SND_NXT
+        return SequenceNumber.a_lt_b_leq_c(self.snd_una, ack_number,
+                                           self.snd_nxt)
     
     def payload_is_accepted(self, packet):
         seq_lo, seq_hi = packet.get_seq_interval()
@@ -106,6 +108,12 @@ class PTCControlBlock(object):
         last_ok = SequenceNumber.a_leq_b_leq_c(self.rcv_nxt, last_byte,
                                                self.rcv_nxt+self.rcv_wnd)
         return last_byte >= first_byte and (first_ok or last_ok)
+    
+    def should_update_window(self, ack_number):
+        # TODO: add tests for this.
+        # RFC 1122, p.94 (correction to RFC 793).
+        return SequenceNumber.a_leq_b_leq_c(self.snd_una, ack_number,
+                                            self.snd_nxt)
     
     def update_window(self, packet):
         seq_number = packet.get_seq_number()
@@ -355,7 +363,6 @@ class PTCProtocol(object):
             # We are sending a FIN packet, and this flag is sequenced. Move
             # forward the next byte sequence to be sent.
             self.control_block.increment_snd_nxt()
-            self.control_block.increment_snd_una()
             new_state = FIN_WAIT1 if self.state == ESTABLISHED else LAST_ACK
             self.set_state(new_state)
             self.send_and_queue(fin_packet)
@@ -370,6 +377,7 @@ class PTCProtocol(object):
                 # Ignore packets not following protocol specification.
                 return
             with self.control_block:
+                self.acknowledge_packets_on_retransmission_queue_with(packet)
                 if self.state == SYN_RCVD:
                     self.handle_incoming_on_syn_rcvd(packet)
                 elif self.state == ESTABLISHED:
@@ -384,7 +392,6 @@ class PTCProtocol(object):
                     self.handle_incoming_on_last_ack(packet)
                 elif self.state == CLOSING:
                     self.handle_incoming_on_closing(packet)                    
-                self.acknowledge_packets_on_retransmission_queue_with(packet)
     
     def handle_incoming_on_listen(self, packet):
         if SYNFlag in packet:
@@ -456,8 +463,6 @@ class PTCProtocol(object):
             self.packet_sender.notify()
         
     def handle_incoming_on_fin_wait1(self, packet):
-        # We might receive data, so we must process the packet accordingly.
-        self.process_on_control_block(packet)
         ack_number = packet.get_ack_number()
         if self.control_block.ack_is_accepted(ack_number):
             # It can only be the ACK to our FIN packet previously sent.
@@ -469,6 +474,8 @@ class PTCProtocol(object):
             # its write stream simultaneously.
             if FINFlag in packet:
                 self.handle_incoming_fin(packet, next_state=CLOSING)
+        # We might receive data, so we must process the packet accordingly.
+        self.process_on_control_block(packet)
             
     def handle_incoming_on_fin_wait2(self, packet):
         # TODO: what if read stream is closed here?
@@ -479,10 +486,9 @@ class PTCProtocol(object):
             self.send_ack_for_packet_only_if_it_has_payload(packet)
             
     def handle_incoming_on_close_wait(self, packet):
-        # We should ignore everything here since the other side has closed its
-        # write stream.
-        # TODO: revisar (ACKs?)
-        pass
+        # We should only process incoming ACKs and ignore everything else since
+        # the other side has closed its write stream.
+        self.process_on_control_block(packet)
     
     def set_closed_if_packet_acknowledges_fin(self, packet):
         # Move to CLOSED only if this packet ACKs the FIN we sent before.

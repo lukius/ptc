@@ -12,6 +12,14 @@ from ptc.packet import ACKFlag, FINFlag
 
 class FINTest(ConnectedSocketTestCase):
     
+    def set_state_on_socket(self, state):
+        self.socket.protocol.state = state
+        if state in [FIN_WAIT1, FIN_WAIT2]:
+            self.socket.protocol.write_stream_open = False
+        if state == FIN_WAIT1:
+            # To simulate than a FIN was already sent.
+            self.socket.protocol.control_block.increment_snd_nxt()        
+    
     def test_close_read_stream(self):
         data_size = 10
         data = self.DEFAULT_DATA[:data_size]
@@ -103,11 +111,9 @@ class FINTest(ConnectedSocketTestCase):
         data = self.DEFAULT_DATA[:size]
         ack_packet = self.packet_builder.build(flags=[ACKFlag],
                                                seq=self.DEFAULT_IRS,
-                                               ack=self.DEFAULT_ISS,
+                                               ack=1+self.DEFAULT_ISS,
                                                payload=data) 
-        # Hack: make the socket think it is on FIN_WAIT1.
-        self.socket.protocol.state = FIN_WAIT1
-        self.socket.protocol.write_stream_open = False
+        self.set_state_on_socket(FIN_WAIT1)
         self.send(ack_packet)
         data_received = self.socket.recv(size)
         # Ignore window update triggered by the previous line.
@@ -121,10 +127,8 @@ class FINTest(ConnectedSocketTestCase):
     def test_receive_fin_ack_after_sending_fin(self):
         packet = self.packet_builder.build(flags=[FINFlag, ACKFlag],
                                            seq=self.DEFAULT_IRS,
-                                           ack=self.DEFAULT_ISS) 
-        # Hack: make the socket think it is on FIN_WAIT1.
-        self.socket.protocol.state = FIN_WAIT1
-        self.socket.protocol.write_stream_open = False
+                                           ack=1+self.DEFAULT_ISS) 
+        self.set_state_on_socket(FIN_WAIT1)
         self.send(packet)
         ack_packet = self.receive(self.DEFAULT_TIMEOUT)
         ack_number = ack_packet.get_ack_number()
@@ -136,10 +140,8 @@ class FINTest(ConnectedSocketTestCase):
     def test_simultaneous_close(self):
         packet = self.packet_builder.build(flags=[FINFlag, ACKFlag],
                                            seq=self.DEFAULT_IRS,
-                                           ack=self.DEFAULT_ISS-1) 
-        # Hack: make the socket think it is on FIN_WAIT1.
-        self.socket.protocol.state = FIN_WAIT1
-        self.socket.protocol.write_stream_open = False
+                                           ack=self.DEFAULT_ISS) 
+        self.set_state_on_socket(FIN_WAIT1)
         self.send(packet)
         ack_packet = self.receive(self.DEFAULT_TIMEOUT)
         ack_number = ack_packet.get_ack_number()
@@ -150,7 +152,7 @@ class FINTest(ConnectedSocketTestCase):
         
         packet = self.packet_builder.build(flags=[ACKFlag],
                                            seq=self.DEFAULT_IRS,
-                                           ack=self.DEFAULT_ISS)
+                                           ack=1+self.DEFAULT_ISS)
         self.send(packet)
         
         self.assertRaises(socket.timeout, self.receive, self.DEFAULT_TIMEOUT)
@@ -163,9 +165,7 @@ class FINTest(ConnectedSocketTestCase):
                                                 seq=self.DEFAULT_IRS,
                                                 ack=self.DEFAULT_ISS,
                                                 payload=data) 
-        # Hack: make the socket think it is on FIN_WAIT2.
-        self.socket.protocol.state = FIN_WAIT2
-        self.socket.protocol.write_stream_open = False
+        self.set_state_on_socket(FIN_WAIT2)
         self.send(data_packet)
         ack_packet = self.receive(self.DEFAULT_TIMEOUT)
         seq_number = ack_packet.get_seq_number()
@@ -210,9 +210,7 @@ class FINTest(ConnectedSocketTestCase):
         fin_packet = self.packet_builder.build(flags=[ACKFlag, FINFlag],
                                                seq=self.DEFAULT_IRS,
                                                ack=self.DEFAULT_ISS) 
-        # Hack: make the socket think it is on FIN_WAIT2.
-        self.socket.protocol.state = FIN_WAIT2
-        self.socket.protocol.write_stream_open = False
+        self.set_state_on_socket(FIN_WAIT2)
         self.send(fin_packet)
         ack_packet = self.receive(self.DEFAULT_TIMEOUT)
         seq_number = ack_packet.get_seq_number()
@@ -224,23 +222,19 @@ class FINTest(ConnectedSocketTestCase):
         self.assertEquals(1+self.DEFAULT_IRS, ack_number)
         self.assertEquals(0, len(ack_packet.get_payload()))
         
-    def test_ignore_packets_on_close_wait(self):
+    def test_ignore_data_packets_on_close_wait(self):
         packet = self.packet_builder.build(flags=[ACKFlag],
                                            seq=self.DEFAULT_IRS,
                                            ack=self.DEFAULT_ISS,
                                            payload=self.DEFAULT_DATA) 
-        # Hack: make the socket think it is on CLOSE_WAIT.
-        self.socket.protocol.state = CLOSE_WAIT
-        self.socket.protocol.read_stream_open = False
+        self.set_state_on_socket(CLOSE_WAIT)
         self.send(packet)
         
         self.assertRaises(socket.timeout, self.receive, self.DEFAULT_TIMEOUT)
         self.assertEquals(CLOSE_WAIT, self.socket.protocol.state)
 
     def test_close_write_stream_on_close_wait(self):
-        # Hack: make the socket think it is on CLOSE_WAIT.
-        self.socket.protocol.state = CLOSE_WAIT
-        self.socket.protocol.read_stream_open = False
+        self.set_state_on_socket(CLOSE_WAIT)
         self.socket.shutdown(SHUT_WR)
         fin_packet = self.receive(self.DEFAULT_TIMEOUT)
         seq_number = fin_packet.get_seq_number()
@@ -259,11 +253,28 @@ class FINTest(ConnectedSocketTestCase):
         self.assertEquals(CLOSED, self.socket.protocol.state)
         self.assertRaises(socket.timeout, self.receive, self.DEFAULT_TIMEOUT)
         
+    def test_send_data_on_close_wait(self):
+        self.set_state_on_socket(CLOSE_WAIT)
+        size = 5
+        data = self.DEFAULT_DATA[:size]
+        ack_packet = self.packet_builder.build(flags=[ACKFlag],
+                                               seq=self.DEFAULT_IRS,
+                                               ack=size+self.DEFAULT_ISS)
+        self.socket.send(data)
+        self.send(ack_packet)
+        data_packet = self.receive(self.DEFAULT_TIMEOUT)
+        snd_una = self.socket.protocol.control_block.get_snd_una()
+        
+        self.assertEquals(data, data_packet.get_payload())
+        # Data packet should not be retransmited.
+        self.assertRaises(socket.timeout, self.receive, self.DEFAULT_TIMEOUT)
+        self.assertEquals(size+self.DEFAULT_ISS, snd_una)
+        
     def test_close_socket(self):
         def send_ack():
             ack_packet = self.packet_builder.build(flags=[ACKFlag],
                                                    seq=self.DEFAULT_IRS,
-                                                   ack=self.DEFAULT_ISS)
+                                                   ack=1+self.DEFAULT_ISS)
             self.send(ack_packet)
 
         # The close call below will block the main thread. So, we set a timer
