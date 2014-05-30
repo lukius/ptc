@@ -2,9 +2,7 @@ import random
 import threading
 
 from constants import NULL_ADDRESS, SHUT_RD, SHUT_WR, SHUT_RDWR
-from exceptions import SocketAlreadyConnectedException
-from exceptions import SocketAlreadyBoundException
-from exceptions import SocketNotConnectedException
+from exceptions import PTCError
 from protocol import PTCProtocol
 
 
@@ -13,12 +11,6 @@ class Socket(object):
     def __init__(self):
         self.protocol = PTCProtocol()
         self.sockname = None
-        
-    def __del__(self):
-        try:
-            self.free()
-        except:
-            pass
 
     def bind(self, address_tuple=None):
         if address_tuple is None:
@@ -29,7 +21,7 @@ class Socket(object):
             self.protocol.bind(*address_tuple)
             self.sockname = address_tuple
         else:
-            raise SocketAlreadyBoundException
+            raise PTCError('socket already bound')
         
     def listen(self):
         if self.is_bound():
@@ -48,7 +40,7 @@ class Socket(object):
             self.listen()
             self._accept(timeout)
         else:
-            raise SocketAlreadyConnectedException
+            raise PTCError('socket already connected')
         
     def _accept(self, timeout):
         def timeout_handler():
@@ -67,7 +59,7 @@ class Socket(object):
                 self.bind()
             self._connect(address_tuple, timeout)
         else:
-            raise SocketAlreadyConnectedException
+            raise PTCError('socket already connected')
         
     def _connect(self, address_tuple, timeout):
         def timeout_handler():
@@ -79,15 +71,17 @@ class Socket(object):
             timer.start()
         self.protocol.connect_to(*address_tuple)
         timer.cancel()
+        
+    def _check_socket_connected(self):
+        if not self.is_connected():
+            raise PTCError('socket not connected')
     
     def send(self, data):
-        if not self.is_connected():
-            raise SocketNotConnectedException
+        self._check_socket_connected()
         self.protocol.send(data)
  
     def recv(self, size):
-        if not self.is_connected():
-            raise SocketNotConnectedException        
+        self._check_socket_connected()       
         return self.protocol.receive(size)
     
     def shutdown(self, how=SHUT_RDWR):
@@ -107,10 +101,9 @@ class Socket(object):
     
     def is_bound(self):
         return self.sockname is not None
-        
-    def last_error(self):
-        try:
-            error = self.protocol.error
-        except:
-            error = None
-        return error
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *args, **kwargs):
+        self.close()

@@ -2,7 +2,6 @@ import threading
 import time
 
 from constants import RETRANSMISSION_TIMEOUT
-from seqnum import SequenceNumber
 
 
 class RetransmissionQueue(object):

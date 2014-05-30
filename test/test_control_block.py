@@ -1,7 +1,7 @@
 from base import PTCTestCase
 from ptc import constants
 from ptc.packet import ACKFlag
-from ptc.protocol import PTCControlBlock
+from ptc.cblock import PTCControlBlock
 from ptc.seqnum import SequenceNumber
 
 

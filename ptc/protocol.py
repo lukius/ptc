@@ -2,13 +2,14 @@ import threading
 import random
 
 
-from buffer import DataBuffer
-from constants import MSS, CLOSED, SYN_RCVD, ESTABLISHED, SYN_SENT,\
+from cblock import PTCControlBlock
+from constants import MSS, CLOSED, ESTABLISHED, SYN_SENT,\
                       LISTEN, FIN_WAIT1, FIN_WAIT2, MAX_SEQ,\
                       MAX_RETRANSMISSION_ATTEMPTS, SHUT_RD, SHUT_WR,\
                       SHUT_RDWR, CLOSE_WAIT, LAST_ACK, CLOSING,\
                       RECEIVE_BUFFER_SIZE
-from exceptions import WriteStreamClosedException
+from exceptions import PTCError
+from handler import IncomingPacketHandler
 from packet import ACKFlag, FINFlag, SYNFlag
 from packet_utils import PacketBuilder
 from rqueue import RetransmissionQueue
@@ -16,147 +17,6 @@ from seqnum import SequenceNumber
 from soquete import Soquete
 from thread import Clock, PacketSender, PacketReceiver
 
-
-class PTCControlBlock(object):
-    
-    def __init__(self, send_seq, receive_seq, send_window, receive_window):
-        self.snd_wnd = send_window
-        self.snd_nxt = send_seq.clone()
-        self.snd_una = send_seq.clone()
-        self.rcv_nxt = receive_seq.clone()
-        self.rcv_wnd = receive_window
-        self.snd_wl1 = receive_seq.clone()
-        self.snd_wl2 = send_seq.clone()
-        self.in_buffer = DataBuffer(start_index=receive_seq.clone())
-        self.out_buffer = DataBuffer(start_index=send_seq.clone())
-        self.lock = threading.RLock()
-        
-    def get_snd_nxt(self):
-        return self.snd_nxt
-    
-    def get_snd_una(self):
-        return self.snd_una    
-    
-    def get_snd_wnd(self):
-        return self.snd_wnd
-    
-    def get_snd_wl1(self):
-        return self.snd_wl1
-
-    def get_snd_wl2(self):
-        return self.snd_wl2        
-    
-    def get_rcv_nxt(self):
-        return self.rcv_nxt
-    
-    def get_rcv_wnd(self):
-        return self.rcv_wnd
-    
-    def increment_snd_nxt(self):
-        with self:
-            self.snd_nxt += 1
-            
-    def increment_snd_una(self):
-        with self:
-            self.snd_una += 1
-            
-    def increment_rcv_nxt(self):
-        with self:
-            self.rcv_nxt += 1
-        
-    def process_incoming(self, packet, ignore_payload=False):
-        self.process_ack(packet)
-        if not ignore_payload:
-            self.process_payload(packet)
-        
-    def process_payload(self, packet):    
-        if self.payload_is_accepted(packet):
-            seq_lo, seq_hi = packet.get_seq_interval()
-            payload = packet.get_payload()
-            lower = max(self.rcv_nxt, seq_lo)
-            upper = min(self.rcv_nxt + self.rcv_wnd, seq_hi)
-            # Honor RCV_WND by dropping those bytes that go below it
-            # or beyond it.
-            effective_payload = payload[lower-seq_lo:upper-seq_lo]
-            self.in_buffer.add_chunk(lower, effective_payload)
-            if lower == self.rcv_nxt:
-                # We should advance rcv_nxt since the lower end of the chunk
-                # just added matches its old value. The buffer tracks this
-                # value as data is inserted and removed.
-                self.rcv_nxt = self.in_buffer.get_last_index()
-                # Decrease window until data is removed from the buffer.
-                self.rcv_wnd = self.rcv_wnd - len(effective_payload)
-    
-    def process_ack(self, packet):
-        ack_number = packet.get_ack_number()
-        if self.ack_is_accepted(ack_number):
-            self.snd_una = ack_number
-        if self.should_update_window(ack_number):
-            self.update_window(packet)
-        
-    def ack_is_accepted(self, ack_number):
-        # Accept only if  SND_UNA < ACK <= SND_NXT
-        return SequenceNumber.a_lt_b_leq_c(self.snd_una, ack_number,
-                                           self.snd_nxt)
-    
-    def payload_is_accepted(self, packet):
-        seq_lo, seq_hi = packet.get_seq_interval()
-        first_byte, last_byte = seq_lo, seq_hi-1
-        first_ok = SequenceNumber.a_leq_b_leq_c(self.rcv_nxt,
-                                                first_byte,
-                                                self.rcv_nxt+self.rcv_wnd)
-        last_ok = SequenceNumber.a_leq_b_leq_c(self.rcv_nxt, last_byte,
-                                               self.rcv_nxt+self.rcv_wnd)
-        return last_byte >= first_byte and (first_ok or last_ok)
-    
-    def should_update_window(self, ack_number):
-        # TODO: add tests for this.
-        # RFC 1122, p.94 (correction to RFC 793).
-        return SequenceNumber.a_leq_b_leq_c(self.snd_una, ack_number,
-                                            self.snd_nxt)
-    
-    def update_window(self, packet):
-        seq_number = packet.get_seq_number()
-        ack_number = packet.get_ack_number()
-        if self.snd_wl1 < seq_number or \
-           (self.snd_wl1 == seq_number and self.snd_wl2 <= ack_number):
-            self.snd_wnd = packet.get_window_size()
-            self.snd_wl1 = seq_number
-            self.snd_wl2 = ack_number
-            
-    def usable_window_size(self):
-        return self.snd_una + self.snd_wnd - self.snd_nxt
-    
-    def has_data_to_send(self):
-        return not self.out_buffer.empty()
-
-    def to_out_buffer(self, data):
-        self.out_buffer.put(data)    
-    
-    def from_in_buffer(self, size):
-        data = self.in_buffer.get(size)
-        # Window should grow now, since data has been consumed.
-        with self:
-            self.rcv_wnd += len(data)
-        return data
-    
-    def extract_from_out_buffer(self, size):
-        usable_window = self.usable_window_size()
-        size = min(size, usable_window)
-        data = self.out_buffer.get(size)
-        self.snd_nxt += len(data)
-        return data
-    
-    def flush_buffers(self):
-        self.in_buffer.flush()
-        self.out_buffer.flush()
-        
-    def __enter__(self, *args, **kwargs):
-        return self.lock.__enter__(*args, **kwargs)
-    
-    def __exit__(self, *args, **kwargs):
-        return self.lock.__exit__(*args, **kwargs)        
-    
 
 class PTCProtocol(object):
     
@@ -171,6 +31,7 @@ class PTCProtocol(object):
         self.retransmission_attempts = dict()
         self.read_stream_open = True
         self.write_stream_open = True
+        self.packet_handler = IncomingPacketHandler(self) 
         self.close_event = threading.Event()
         self.initialize_threads()
         
@@ -264,7 +125,7 @@ class PTCProtocol(object):
 
     def accept(self):
         if self.state != LISTEN:
-            raise Exception('should listen first')
+            raise PTCError('should listen first')
         self.connected_event = threading.Event()
         self.start_threads()
         # Wait until client attempts to connect.
@@ -273,7 +134,7 @@ class PTCProtocol(object):
     def send(self, data):
         with self.control_block:
             if not self.write_stream_open:
-                raise WriteStreamClosedException
+                raise PTCError('write stream is closed')
             self.control_block.to_out_buffer(data)
             self.packet_sender.notify()
         
@@ -368,140 +229,9 @@ class PTCProtocol(object):
             self.send_and_queue(fin_packet)
     
     def handle_incoming(self, packet):
-        if self.state == LISTEN:
-            self.handle_incoming_on_listen(packet)
-        elif self.state == SYN_SENT:
-            self.handle_incoming_on_syn_sent(packet)
-        else:
-            if ACKFlag not in packet:
-                # Ignore packets not following protocol specification.
-                return
-            with self.control_block:
-                self.acknowledge_packets_on_retransmission_queue_with(packet)
-                if self.state == SYN_RCVD:
-                    self.handle_incoming_on_syn_rcvd(packet)
-                elif self.state == ESTABLISHED:
-                    self.handle_incoming_on_established(packet)
-                elif self.state == FIN_WAIT1:
-                    self.handle_incoming_on_fin_wait1(packet)
-                elif self.state == FIN_WAIT2:
-                    self.handle_incoming_on_fin_wait2(packet)  
-                elif self.state == CLOSE_WAIT:
-                    self.handle_incoming_on_close_wait(packet)
-                elif self.state == LAST_ACK:
-                    self.handle_incoming_on_last_ack(packet)
-                elif self.state == CLOSING:
-                    self.handle_incoming_on_closing(packet)                    
+        self.packet_handler.handle(packet)
+        self.packet_sender.notify()
     
-    def handle_incoming_on_listen(self, packet):
-        if SYNFlag in packet:
-            self.set_state(SYN_RCVD)
-            self.initialize_control_block_from(packet)
-            self.set_destination_on_packet_builder(packet.get_source_ip(),
-                                                   packet.get_source_port())
-            syn_ack_packet = self.build_packet(flags=[SYNFlag, ACKFlag])
-            # The next byte we send should be sequenced after the SYN flag.
-            self.control_block.increment_snd_nxt()
-            self.socket.send(syn_ack_packet)
-            
-    def handle_incoming_on_syn_sent(self, packet):
-        if SYNFlag not in packet or ACKFlag not in packet:
-            return
-        ack_number = packet.get_ack_number()
-        # +1 since the SYN flag is also sequenced.
-        expected_ack = 1 + self.iss
-        if expected_ack == ack_number:
-            self.initialize_control_block_from(packet)
-            self.dst_port = packet.get_source_port()
-            self.dst_address = packet.get_source_ip()
-            ack_packet = self.build_packet(flags=[ACKFlag])
-            self.set_state(ESTABLISHED)
-            self.socket.send(ack_packet)            
-            
-    def handle_incoming_on_syn_rcvd(self, packet):
-        ack_number = packet.get_ack_number()
-        if self.control_block.ack_is_accepted(ack_number):
-            self.set_state(ESTABLISHED)
-            # This packet is acknowledging our SYN. We must increment SND_UNA
-            # in order to reflect this.
-            self.control_block.increment_snd_una()
-            
-    def handle_incoming_fin(self, packet, next_state):
-        seq_number = packet.get_seq_number()
-        # SEQ number should be the one we are expecting.        
-        if seq_number == self.control_block.get_rcv_nxt():
-            self.set_state(next_state)
-            self.read_stream_open = False
-            # The FIN flag is also sequenced, and so we must increment the next
-            # byte we expect to receive.
-            self.control_block.increment_rcv_nxt()
-        # Send ACK (if the previous check fails, the ACK number will be
-        # automatically set to the proper one).
-        ack_packet = self.build_packet()
-        self.socket.send(ack_packet)
-        
-    def process_on_control_block(self, packet):
-        ignore_payload = not self.read_stream_open
-        self.control_block.process_incoming(packet,
-                                            ignore_payload=ignore_payload)
-        
-    def send_ack_for_packet_only_if_it_has_payload(self, packet):
-        # This is to avoid sending ACKs for plain ACK segments.
-        if len(packet.get_payload()) > 0:
-            ack_packet = self.build_packet()
-            self.socket.send(ack_packet)        
-            
-    def handle_incoming_on_established(self, packet):
-        if FINFlag in packet:
-            self.handle_incoming_fin(packet, next_state=CLOSE_WAIT)
-        else:
-            self.process_on_control_block(packet)
-            if not self.control_block.has_data_to_send():
-                # If some data is about to be sent, then just piggyback the ACK
-                # there. It is not necessary to manually send an ACK.
-                self.send_ack_for_packet_only_if_it_has_payload(packet)
-            self.packet_sender.notify()
-        
-    def handle_incoming_on_fin_wait1(self, packet):
-        ack_number = packet.get_ack_number()
-        if self.control_block.ack_is_accepted(ack_number):
-            # It can only be the ACK to our FIN packet previously sent.
-            self.set_state(FIN_WAIT2)
-            if FINFlag in packet:
-                self.handle_incoming_fin(packet, next_state=CLOSED)
-        else:
-            # Check if it is a FIN packet, meaning that our peer closed
-            # its write stream simultaneously.
-            if FINFlag in packet:
-                self.handle_incoming_fin(packet, next_state=CLOSING)
-        # We might receive data, so we must process the packet accordingly.
-        self.process_on_control_block(packet)
-            
-    def handle_incoming_on_fin_wait2(self, packet):
-        # TODO: what if read stream is closed here?
-        if FINFlag in packet:
-            self.handle_incoming_fin(packet, next_state=CLOSED)
-        else:
-            self.process_on_control_block(packet)
-            self.send_ack_for_packet_only_if_it_has_payload(packet)
-            
-    def handle_incoming_on_close_wait(self, packet):
-        # We should only process incoming ACKs and ignore everything else since
-        # the other side has closed its write stream.
-        self.process_on_control_block(packet)
-    
-    def set_closed_if_packet_acknowledges_fin(self, packet):
-        # Move to CLOSED only if this packet ACKs the FIN we sent before.
-        ack_number = packet.get_ack_number()
-        if self.control_block.ack_is_accepted(ack_number):
-            self.set_state(CLOSED)
-    
-    def handle_incoming_on_last_ack(self, packet):
-        self.set_closed_if_packet_acknowledges_fin(packet)
-            
-    def handle_incoming_on_closing(self, packet):
-        self.set_closed_if_packet_acknowledges_fin(packet)
-        
     def shutdown(self, how):
         if how == SHUT_RD:
             self.shutdown_read_stream()

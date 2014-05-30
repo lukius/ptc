@@ -2,7 +2,7 @@ import random
 import struct
 import socket
 
-from constants import PROTOCOL_NUMBER, MAX_SEQ, MAX_WND
+from constants import PROTOCOL_NUMBER, MAX_WND
 from seqnum import SequenceNumber
 
 
@@ -239,6 +239,9 @@ class PTCTransportPacket(object):
     def set_parent(self, parent):
         self.parent = parent
         
+    def has_payload(self):
+        return len(self.payload) > 0        
+        
     def get_bytes(self):
         flags_bytes = reduce(lambda value, flag: value ^ flag.get_bits(),
                              self.flags, 0)
@@ -332,6 +335,9 @@ class PTCPacket(object):
     def get_bytes(self):
         return self.network_packet.get_bytes()
     
+    def has_payload(self):
+        return self.transport_packet.has_payload()    
+    
     def __repr__(self):
         template = 'From: %s\nTo: %s\nSeq: %d\nAck: %d\nFlags: %s\nWindow: %s\nPayload: %s'
         from_field = '(%s, %d)' % (self.get_source_ip(),
@@ -355,7 +361,7 @@ class PTCFlag(object):
     
     @classmethod
     def get_bits(self):
-        raise NotImplementedError('Subclasses must implement this method.')
+        raise NotImplementedError
     
     @classmethod
     def __hash__(self):

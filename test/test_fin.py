@@ -6,14 +6,17 @@ from base import ConnectedSocketTestCase
 from ptc.constants import RETRANSMISSION_TIMEOUT, SHUT_RD, SHUT_WR,\
                           ESTABLISHED, FIN_WAIT1, FIN_WAIT2, CLOSED,\
                           CLOSE_WAIT, LAST_ACK, CLOSING
-from ptc.exceptions import WriteStreamClosedException
+from ptc.exceptions import PTCError
 from ptc.packet import ACKFlag, FINFlag
 
 
 class FINTest(ConnectedSocketTestCase):
     
     def set_state_on_socket(self, state):
+        # Simulate what the protocol does when changing states.
         self.socket.protocol.state = state
+        if state == CLOSE_WAIT:
+            self.socket.protocol.read_stream_open = False
         if state in [FIN_WAIT1, FIN_WAIT2]:
             self.socket.protocol.write_stream_open = False
         if state == FIN_WAIT1:
@@ -61,7 +64,6 @@ class FINTest(ConnectedSocketTestCase):
         self.assertEquals(FIN_WAIT1, self.socket.protocol.state)
         self.assertIn(FINFlag, fin_packet)
         self.assertEquals(0, len(fin_packet.get_payload()))
-        # FIN flag should be sequenced.
         self.assertEquals(self.DEFAULT_ISS, seq_number)
 
     def receive_fin_and_assert_retransmissions(self, data_packet):
@@ -81,11 +83,8 @@ class FINTest(ConnectedSocketTestCase):
                                                seq=self.DEFAULT_IRS,
                                                ack=self.DEFAULT_ISS+data_size)          
         self.socket.send(data)
-        # There will be no race conditions here: the socket will have pending
-        # data since we still need to manually send our ACKs.
         self.socket.shutdown(SHUT_WR)
-        self.assertRaises(WriteStreamClosedException, self.socket.send,
-                          self.DEFAULT_DATA)
+        self.assertRaises(PTCError, self.socket.send, self.DEFAULT_DATA)
 
         time.sleep(2*RETRANSMISSION_TIMEOUT)
         self.send(ack_packet)
@@ -103,25 +102,38 @@ class FINTest(ConnectedSocketTestCase):
         self.assertEquals(FIN_WAIT1, self.socket.protocol.state)
         self.assertIn(FINFlag, fin_packet)
         self.assertEquals(0, len(fin_packet.get_payload()))
-        # FIN flag should be sequenced.
         self.assertEquals(self.DEFAULT_ISS+data_size, seq_number)
         
     def test_receive_ack_after_sending_fin(self):
-        size = 10
-        data = self.DEFAULT_DATA[:size]
         ack_packet = self.packet_builder.build(flags=[ACKFlag],
                                                seq=self.DEFAULT_IRS,
-                                               ack=1+self.DEFAULT_ISS,
-                                               payload=data) 
+                                               ack=1+self.DEFAULT_ISS) 
         self.set_state_on_socket(FIN_WAIT1)
         self.send(ack_packet)
-        data_received = self.socket.recv(size)
-        # Ignore window update triggered by the previous line.
-        self.receive(self.DEFAULT_TIMEOUT)
         
         self.assertEquals(FIN_WAIT2, self.socket.protocol.state)
         # Nothing should be sent back.
         self.assertRaises(socket.timeout, self.receive, self.DEFAULT_TIMEOUT)
+
+    def test_send_ack_on_fin_wait1(self):
+        size = 10
+        data = self.DEFAULT_DATA[:size]
+        # Below, the ACK number is "older" since we are just interested in
+        # sending data and receiving the respective ACK.
+        packet = self.packet_builder.build(flags=[ACKFlag],
+                                           seq=self.DEFAULT_IRS,
+                                           ack=self.DEFAULT_ISS-1,
+                                           payload=data) 
+        self.set_state_on_socket(FIN_WAIT1)
+        self.send(packet)
+        ack_packet = self.receive(self.DEFAULT_TIMEOUT)
+        ack_number = ack_packet.get_ack_number()
+        rcv_nxt = self.socket.protocol.control_block.get_rcv_nxt()
+        data_received = self.socket.recv(size)
+        
+        self.assertEquals(self.DEFAULT_IRS+size, ack_number)
+        self.assertEquals(ack_number, rcv_nxt)
+        self.assertEquals(FIN_WAIT1, self.socket.protocol.state)
         self.assertEquals(data, data_received)
         
     def test_receive_fin_ack_after_sending_fin(self):
@@ -242,7 +254,6 @@ class FINTest(ConnectedSocketTestCase):
         self.assertEquals(LAST_ACK, self.socket.protocol.state)
         self.assertIn(FINFlag, fin_packet)
         self.assertEquals(0, len(fin_packet.get_payload()))
-        # FIN flag should be sequenced.
         self.assertEquals(self.DEFAULT_ISS, seq_number)
         
         ack_packet = self.packet_builder.build(flags=[ACKFlag],
@@ -261,13 +272,11 @@ class FINTest(ConnectedSocketTestCase):
                                                seq=self.DEFAULT_IRS,
                                                ack=size+self.DEFAULT_ISS)
         self.socket.send(data)
-        self.send(ack_packet)
         data_packet = self.receive(self.DEFAULT_TIMEOUT)
+        self.send(ack_packet)
         snd_una = self.socket.protocol.control_block.get_snd_una()
         
         self.assertEquals(data, data_packet.get_payload())
-        # Data packet should not be retransmited.
-        self.assertRaises(socket.timeout, self.receive, self.DEFAULT_TIMEOUT)
         self.assertEquals(size+self.DEFAULT_ISS, snd_una)
         
     def test_close_socket(self):

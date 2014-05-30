@@ -211,6 +211,7 @@ class ConnectedSocketTestCase(PTCTestCase):
         control_block = ptc.protocol.PTCControlBlock(iss, irs, send_window,
                                                      receive_window)
         ptc_socket.protocol.control_block = control_block
+        ptc_socket.protocol.packet_handler.control_block = control_block
         ptc_socket.protocol.set_destination_on_packet_builder(dst_address,
                                                               dst_port)
         return ptc_socket        
