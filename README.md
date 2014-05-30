@@ -2,7 +2,7 @@
 
 #### Introduction
 
-PTC is TCP-based but extremely simplified transport protocol. It was (and still is!) developed in the context of [Teoría de las Comunicaciones](http://dc.uba.ar/tdc), an undergraduate course on networking of the MSc in Computer Science at the University of Buenos Aires. It is mainly aimed at providing a simple enough framework for delving into several transport-layer concepts (such as the implementation of "real" sliding window algorithms, connection establishment and manteinance, state transitions, and so forth) in a pragmatic way.
+PTC is a TCP-based but extremely simplified transport protocol. It was (and still is!) developed in the context of [Teoría de las Comunicaciones](http://dc.uba.ar/tdc), an undergraduate course on networking of the MSc in Computer Science at the University of Buenos Aires. It is mainly aimed at providing a simple enough framework for delving into several transport-layer concepts (such as the implementation of "real" sliding window algorithms, connection establishment and maintenance, state transitions, and so forth) in a pragmatic way.
 
 #### The protocol
 
@@ -39,14 +39,14 @@ The segment header has a fixed length of 16 bytes:
 Below we briefly discuss each of these fields:
  * `Source port` (16 bits): port number used by the sender of the packet.
  * `Destination port` (16 bits): port number used by the receiver of the packet.
- * `#SEQ` (32 bits):  indicates the first byte of data contained in the packet. Regarding this, note that `SYN` and `FIN` control bits (explained soon) **must**  be sequenced. 
+ * `#SEQ` (32 bits):  indicates the first byte of data contained in the packet. Regarding this, note that the `SYN` and `FIN` control bits (explained soon) **must**  be sequenced. 
  * `#ACK` (32 bits): indicates the value of the next byte that the sender expects to receive. Once a connection is successfully established, this value **must** be sent.
  * `Reserved` (11 bits): reserved for future use; **must** be zero.
  * Control bits (5 bits):
   * `ACK` **must** be always set. Indicates that the `#ACK` field is significant.
   * `SYN` should be only set when attempting to establish a connection or when replying to a previously received `SYN` packet. Used to synchronize sequence numbers.
   * Similarly, `FIN` should be set only when the sender is willing to close its write stream. Note that the receiver might continue to send data, which implies that the sender **must** continue to correctly process the payload contained in every incoming packet.
-  * At the moment, the other flags (i.e., `RST` y `NDT`) have no use.
+  * At the moment, the other flags (i.e., `RST` and `NDT`) have no use.
  * `Window` (16 bits): the number of bytes starting with `#ACK` that the sender is willing to accept.
  * `Payload` (variable length): data provided by upper-layer protocols.
     
