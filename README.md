@@ -106,19 +106,19 @@ A maximum number of retransmissions is defined as well (`MAX_RETRANSMISSION_ATTE
 
 ##### States
 
-Cada PTC puede atravesar una serie de estados durante el ciclo de vida de una conexión:
- * `LISTEN`, que representa la espera de una conexión entrante por parte de un PTC remoto.
- * `SYN_SENT`, en el que el PTC está a la espera de una respuesta a la solicitud de conexión previamente enviada.
- * `SYN_RCVD`, donde el PTC ya recibió una solicitud de conexión y respondió afirmativamente a ella, y está aguardado a que este último mensaje sea confirmado.
- * `ESTABLISHED`, que indica una conexión abierta y activa. Es el estado normal de intercambio de datos.
- * `FIN_WAIT1`, en donde el PTC inició el cierre de su stream de salida y está aguardado la confirmación de su interlocutor.
- * `FIN_WAIT2`, en donde el PTC ya cerró exitosamente su stream de salida y queda a la espera de que su interlocutor cierre el suyo.
- * `CLOSE_WAIT`, que indica que el interlocutor ya cerró su stream de salida y el PTC está esperando que el usuario decida cerrar la conexión.
- * `CLOSING`, que representa un cierre simultáneo de ambas partes.
- * `LAST_ACK`, en el que el PTC sólo espera a recibir la confirmación del cierre de su stream de salida (su interlocutor ya cerró previamente el suyo).
- * `CLOSED`, que es la ausencia de conexión.
+A PTC connection lifetime might traverse several states:
+ * `LISTEN`, which represents waiting for an incoming connection from a remote PTC.
+ * `SYN_SENT`, on which the PTC is waiting for a reply for the connection request previously issued.
+ * `SYN_RCVD`, where the PTC has already received a connection request and replied it positively, and is waiting for this last message to be confirmed.
+ * `ESTABLISHED`, which indicates an open and active connection. It is the standard data exchange state.
+ * `FIN_WAIT1`, where the PTC started to close its write stream and is waiting for an acknowledgement of its interlocutor.
+ * `FIN_WAIT2`, where the PTC has successfully closed its write stream and still waits for its peer to close theirs.
+ * `CLOSE_WAIT`, which indicates that the peer closed its write stream and the PTC is waiting for the user to close the connection.
+ * `CLOSING`, which represents a simultaneous close of both parts.
+ * `LAST_ACK`, on which the PTC is just waiting for its peer to send and acknowledgement to the `FIN` previously sent (the peer has already closed its write stream).
+ * `CLOSED`, which is the absence of connection.
 
-Las transiciones entre dichos estados se disparan por medio de tres tipos de eventos: acciones del usuario (`close`/`shutdown`, `listen` y `connect`), arribo de segmentos y exceso de retransmisiones. El diagrama que se muestra abajo resume los cambios de estado posibles junto con los respectivos eventos y las acciones tomadas por el protocolo en respuesta a ellos.
+State transitions are triggered by three kinds of events: user actions (`close`/`shutdown`, `listen` and `connect`), segment arrival and excessive retransmissions. The following diagram summarizes the valid transitions along with their associated events and the actions taken by the protocol in response.
 
                                   +---------+ --------        connect  
                                   |  CLOSED |         \     ----------  
@@ -163,7 +163,7 @@ Las transiciones entre dichos estados se disparan por medio de tres tipos de eve
          ------------------------>|  CLOSED |<--------------------
                                   +---------+
 
-A los efectos de mantener la simplicidad del diagrama, el paso a `CLOSED` luego de exceder el máximo de retransmisiones fue omitido. Observar que esta transición podría originarse no sólo en `ESTABLISHED` sino también en cualquier otro estado sincronizado que involucre el envío de un paquete de datos o un paquete `FIN`.
+In order to improve simplicity, the transitions to `CLOSED` after surpassing the maximum allowed number of retransmissions were omitted. Note that this transition might occur not only in `ESTABLISHED` but also in any other synchronized state on which a data segment or a `FIN` segment might be sent. 
 
 ##### Procesamiento de paquetes
 
