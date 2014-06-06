@@ -65,7 +65,7 @@ In order to release the connection, an asymmetric, four-way handshake algorithm 
 
 ##### Sliding window and control block
 
-PTC flow control is essentially analogous to that of TCP (without options). It uses cumulative acknowledgements and provides a variable-sized receive window whose actual size is usually determined by the space allocated for the incoming buffer. Every aspect of the sliding window is encapsulated in a structure called *control block*, which is instanciated by a PTC once it has made contact with a remote interlocutor. The control block manages both the send and receive windows and also the incoming and outgoing data buffers. Regarding the send side, the following variables are defined:
+PTC flow control is essentially analogous to that of TCP (without options). It uses cumulative acknowledgements and provides a variable-sized receive window whose actual size is usually determined by the space allocated for the incoming buffer. Every aspect of the sliding window is encapsulated in a structure called *control block*, which is instantiated by a PTC once it has made contact with a remote interlocutor. The control block manages both the send and receive windows and also the incoming and outgoing data buffers. Regarding the send side, the following variables are defined:
  * `SND_UNA`, which contains the smallest sequence number still not acknowledged.
  * `SND_NXT`, which represents the next sequence number to be used in an outgoing segment.
  * `SND_WND`, which is the maximum number of bytes that can be sent at the moment, conforming to the information provided by the interlocutor.
