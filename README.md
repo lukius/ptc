@@ -66,7 +66,7 @@ In order to release the connection, an asymmetric, four-way handshake algorithm 
 ##### Sliding window and control block
 
 PTC flow control is essentially analogous to that of TCP (without options). It uses cumulative acknowledgements and provides a variable-sized receive window whose actual size is usually determined by the space allocated for the incoming buffer. Every aspect of the sliding window is encapsulated in a structure called *control block*, which is instanciated by a PTC once it has made contact with a remote interlocutor. The control block manages both the send and receive windows and also the incoming and outgoing data buffers. Regarding the send side, the following variables are defined:
- * `SND_UNA`, which containts the smallest sequence number still not acknowledged.
+ * `SND_UNA`, which contains the smallest sequence number still not acknowledged.
  * `SND_NXT`, which represents the next sequence number to be used in an outgoing segment.
  * `SND_WND`, which is the maximum number of bytes that can be sent at the moment, conforming to the information provided by the interlocutor.
  * `SND_WL1`, which indicates the sequence number of the last incoming packet used to update `SND_WND`.
@@ -96,15 +96,15 @@ In a similar fashion, the sequence space might be pictured like so:
                    ----------|----------|---------- 
                           RCV_NXT    RCV_NXT + RCV_WND  
             
-Here, the first portion containts every sequence number already received and acknowledged, while portion 2 represents the sequence numbers that PTC is now willing to accept. Finally, portion 3 has every sequence number which will be acceptable in the future. These will move to portion 2 when data arrives and `RCV_NXT` moves right.
+Here, the first portion contains every sequence number already received and acknowledged, while portion 2 represents the sequence numbers that PTC is now willing to accept. Finally, portion 3 has every sequence number which will be acceptable in the future. These will move to portion 2 when data arrives and `RCV_NXT` moves right.
 
-##### Retransmisiones
+##### Retransmissions
 
-Al enviar un segmento con datos, PTC también encolará este segmento en la cola de retransmisión. Éste permanecerá allí hasta ser eventualmente reconocido. Por otro lado, el cliente también define un tiempo máximo de espera `RETRANSMISSION_TIMEOUT` para esperar por estos reconocimientos. De superarse este tiempo, se asumirá que el paquete se extravió en los rincones de la red y por ende será retransmitido.  
+After sending a data segment, PTC will also enqueue it in the retransmission queue. This packet will remain there until it is eventually acknowledged. Moreover, the protocol specifies a timeout for this acknowledge, `RETRANSMISSION_TIMEOUT`. Should this time be exceeded, PTC must assume that its packet did not reach destination and thus will have to be retransmitted.  
 
-Se define asimismo un número máximo admisible de retranmisiones, `MAX_RETRANSMISSION_ATTEMPTS`. Si algún segmento debiera ser retransmitido más veces que esta cantidad, se debe asumir que la conexión se perdió y se pasará a cerrarla sin enviar `FIN`, liberando directamente todos los recursos reservados por la conexión.
+A maximum number of retransmissions is defined as well (`MAX_RETRANSMISSION_ATTEMPTS`). If any segment happens to be retransmitted more times than this value, PTC must assume that the connection died and will proceed to close it without sending `FIN`, freeing instead every resource allocated.
 
-##### Estados
+##### States
 
 Cada PTC puede atravesar una serie de estados durante el ciclo de vida de una conexión:
  * `LISTEN`, que representa la espera de una conexión entrante por parte de un PTC remoto.
