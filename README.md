@@ -65,38 +65,38 @@ In order to release the connection, an asymmetric, four-way handshake algorithm 
 
 ##### Sliding window and control block
 
-El control de flujo en PTC es en su mayor parte análogo al de TCP (sin opciones). Utiliza un esquema de reconocimiento que usa ACKs acumulativos y provee una ventana de recepción de tamaño variable, usualmente ligada a la memoria disponible para el buffer de entrada. Todo lo referente a la ventana deslizante queda encapsulado en una estructura denominada *bloque de control*, que es instanciada por un PTC una vez hecho el contacto con su contraparte. El bloque mantiene el estado de las ventanas de emisión y recepción y controla los buffers de entrada y salida. En cuanto a la emisión, las variables que se utilizan son las siguientes:
- * `SND_UNA`, que indica el número de secuencia más chico que aún no fue reconocido.
- * `SND_NXT`, que representa el siguiente número de secuencia a ser utilizado en un paquete saliente.
- * `SND_WND`, que contiene la máxima cantidad de bytes que pueden enviarse actualmente, a partir de lo informado por el interlocutor.
- * `SND_WL1`, que indica el número de secuencia del interlocutor que fue utilizado para actualizar la ventana de emisión.
- * `SND_WL2`, que, de manera similar, indica el número de ACK del segmento entrante que se usó para definir el tamaño de ventana actual.
+PTC flow control is essentially analogous to that of TCP (without options). It uses cumulative acknowledgements and provides a variable-sized receive window whose actual size is usually determined by the space allocated for the incoming buffer. Every aspect of the sliding window is encapsulated in a structure called *control block*, which is instanciated by a PTC once it has made contact with a remote interlocutor. The control block manages both the send and receive windows and also the incoming and outgoing data buffers. Regarding the send side, the following variables are defined:
+ * `SND_UNA`, which containts the smallest sequence number still not acknowledged.
+ * `SND_NXT`, which represents the next sequence number to be used in an outgoing segment.
+ * `SND_WND`, which is the maximum number of bytes that can be sent at the moment, conforming to the information provided by the interlocutor.
+ * `SND_WL1`, which indicates the sequence number of the last incoming packet used to update `SND_WND`.
+ * `SND_WL2`, which, similarly, indicates the acknowledge number of the last incoming packet used to update `SND_WND`.
  
+The next diagram shows the sequence space as defined by these variables:
 
-El siguiente diagrama permite visualizar el espacio de secuenciamiento surgido a partir de lo anterior:
 
                    1         2          3          4      
               ----------|----------|----------|---------- 
                      SND_UNA    SND_NXT    SND_UNA + SND_WND
                      
-En él, las secciones numeradas pueden entenderse como sigue:
- 1. Números de secuencia que ya fueron reconocidos.
- 2. Números de secuencia utilizados en paquetes salientes que aún no fueron reconocidos (i.e., datos en vuelo).
- 3. Números de secuencia disponibles para enviar nuevos datos.
- 4. Números de secuencia que podrán utilizarse en el futuro, conforme vayan llegando los reconocimientos.
+Each fragment may be understood as follows:
+ 1. Sequence numbers already acknowledged.
+ 2. Sequence numbers used in outgoing segments still not acknowledged.
+ 3. Sequence numbers currently available to dispatch new data segments.
+ 4. Sequence numbers that will be available in the future, as acknowledges arrive.
  
 
-La ventana de recepción se define a través de las siguientes variables:
- * `RCV_NXT`, cuyo valor se corresponde con el próximo número de secuencia del interlocutor que PTC espera recibir.
- * `RCV_WND`, que indica la cantidad de bytes que PTC está dispuesto a recibir actualmente.
+The receive window is managed by keeping track of these variables:
+ * `RCV_NXT`, whose value corresponds to the next sequence number that PTC expects to receive.
+ * `RCV_WND`, which is the number of bytes that PTC is able to accept at the moment.
 
-En forma análoga, el espacio de secuenciamiento puede esquematizarse así:
+In a similar fashion, the sequence space might be pictured like so:
 
                        1          2          3      
                    ----------|----------|---------- 
                           RCV_NXT    RCV_NXT + RCV_WND  
             
-En este caso, la porción 1 contiene los números de secuencia del interlocutor que ya fueron recibidos y reconocidos, mientras que en 2 se encuentran los números de secuencia que PTC está dispuesto a aceptar. Finalmente, en 3 están los números de secuencia aceptables en el futuro. Éstos irán pasando a la porción 2 a medida que vayan llegando los datos y `RCV_NXT` se mueva hacia la derecha.
+Here, the first portion containts every sequence number already received and acknowledged, while portion 2 represents the sequence numbers that PTC is now willing to accept. Finally, portion 3 has every sequence number which will be acceptable in the future. These will move to portion 2 when data arrives and `RCV_NXT` moves right.
 
 ##### Retransmisiones
 
