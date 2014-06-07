@@ -165,21 +165,21 @@ State transitions are triggered by three kinds of events: user actions (`close`/
 
 In order to improve simplicity, the transitions to `CLOSED` after surpassing the maximum allowed number of retransmissions were omitted. Note that this transition might occur not only in `ESTABLISHED` but also in any other synchronized state on which a data segment or a `FIN` segment might be sent. 
 
-##### Procesamiento de paquetes
+##### Packet processing
 
-Al recibir un paquete, éste se procesará de una u otra manera en función del estado transitado por PTC. En lo que sigue, notaremos con `SEG_SEQ`, `SEG_ACK` y `SEG_LEN` el número de secuencia del paquete entrante, su número de ACK y el tamaño de sus datos respectivamente. Notar además que todo paquete cuyo flag de `ACK` esté apagado **debe** ser automáticamente descartado sin importar en qué estado esté el protocolo (a excepción de `LISTEN`).
+Upon receiving a packet, PTC will process it according to its underlying state. In what follows, we will note `SEG_SEQ`, `SEG_ACK`, `SEG_LEN` and `SEG_WND` the incoming packet sequence number, its acknowledge number, its payload length and its window size, respectively. In addition, recall that every packet whose `ACK` flag is off **must** be automatically discarded no matter what state PTC is on (with the sole exception of `LISTEN`).
 
 ###### `LISTEN`
 
-Sólo se debe aceptar un paquete `SYN` y se debe inicializar el bloque de control a partir de la información provista por dicho paquete y por un número de secuencia inicial (`ISS`) computado aleatoriamente. Luego de cambiar el estado, se deberá enviar un paquete `SYN`/`ACK` en respuesta y por último incrementar `SND_NXT`.
+Only `SYN` packets should be accepted. When doing so, PTC should initialize the control block after the information provided by such packet and a random initial sequence number `ISS`. After switching to `SYN_RCVD`, PTC must send a `SYN`/`ACK` packet in response and finally increment `SND_NXT`.
 
 ###### `SYN_SENT`
 
-Sólo se debe aceptar un paquete con los flags de `SYN` y `ACK` prendidos. Además, `SEG_ACK` debe ser el valor del número de secuencia previamente enviado más uno. En tal caso, se deberá inicializar el bloque de control, pasar a `ESTABLISHED` y enviar el reconocimiento respectivo.
+Only `SYN`/`ACK` packets should be accepted. Besides, `SEG_ACK` must be equal to `SND_NXT` (i.e., the sequence number previously sent plus one). If this holds, the control block should be initialized, the state should be set to `ESTABLISHED` and a proper acknowledgement should be sent.
 
 ###### `SYN_RCVD`
 
-Si `SEG_ACK` es aceptable (i.e., su valor es uno más que el número de secuencia enviado), se debe pasar a `ESTABLISHED` e incrementar `SND_UNA` (recordar que el flag `SYN` también se secuencia).
+If `SEG_ACK` is aceptable (i.e., its value equals `SND_NXT`), PTC should move to `ESTABLISHED` and also increment `SND_UNA` (since a `SYN` must be sequenced too).
 
 ###### `ESTABLISHED`
 
