@@ -1,20 +1,12 @@
 import time
 
-from base import ConnectedSocketTestCase
+from base import ConnectedSocketTestCase, PTCTestCase
 from ptc.constants import RETRANSMISSION_TIMEOUT, MAX_RETRANSMISSION_ATTEMPTS
-from ptc.packet import ACKFlag
+from ptc.packet import SYNFlag, ACKFlag
 
 
-class RetransmissionTest(ConnectedSocketTestCase):
+class RetransmissionTestMixin(object):
     
-    def assert_retransmission(self, first_packet, second_packet):
-        self.assertEquals(first_packet.get_seq_number(),
-                          second_packet.get_seq_number())
-        self.assertEquals(first_packet.get_ack_number(),
-                          second_packet.get_ack_number())
-        self.assertEquals(first_packet.get_payload(),
-                          second_packet.get_payload())
-        
     def get_retransmitted_packets(self):
         packets = list()
         while True:
@@ -28,7 +20,18 @@ class RetransmissionTest(ConnectedSocketTestCase):
     
     def wait_until_total_retransmission_time_expires(self):
         time.sleep((1 + MAX_RETRANSMISSION_ATTEMPTS) * RETRANSMISSION_TIMEOUT)
+        
+        
+class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
     
+    def assert_retransmission(self, first_packet, second_packet):
+        self.assertEquals(first_packet.get_seq_number(),
+                          second_packet.get_seq_number())
+        self.assertEquals(first_packet.get_ack_number(),
+                          second_packet.get_ack_number())
+        self.assertEquals(first_packet.get_payload(),
+                          second_packet.get_payload())
+        
     def test_retransmission_after_lost_packet(self):
         self.socket.send(self.DEFAULT_DATA)
         first_packet = self.receive(self.DEFAULT_TIMEOUT)
@@ -60,7 +63,7 @@ class RetransmissionTest(ConnectedSocketTestCase):
         packets = self.get_retransmitted_packets()
         
         self.assertGreater(MAX_RETRANSMISSION_ATTEMPTS, len(packets))
-        self.assertTrue(self.socket.is_connected())
+        self.assertTrue(self.socket.is_connected())        
         
     def test_unaccepted_ack_ignored_when_updating_retransmission_queue(self):
         ack_number = self.DEFAULT_ISS + self.DEFAULT_IW + 1
@@ -75,3 +78,20 @@ class RetransmissionTest(ConnectedSocketTestCase):
         
         self.assertEquals(MAX_RETRANSMISSION_ATTEMPTS, len(packets))
         self.assertFalse(self.socket.is_connected())
+        
+
+class SYNRetransmissionTest(PTCTestCase, RetransmissionTestMixin):
+
+    def test_syn_packet_removed_from_retransmission_queue_after_syn_ack(self):
+        self.launch_client()
+        syn_packet = self.receive(self.DEFAULT_TIMEOUT)
+        received_seq_number = syn_packet.get_seq_number()
+        seq_number = 1111
+        syn_ack_packet = self.packet_builder.build(flags=[SYNFlag, ACKFlag],
+                                                   seq=seq_number,
+                                                   ack=received_seq_number+1)
+        self.send(syn_ack_packet)
+        self.wait_until_total_retransmission_time_expires()
+        packets = self.get_retransmitted_packets()
+        
+        self.assertEquals(0, len(packets))

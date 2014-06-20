@@ -23,7 +23,7 @@ class IncomingPacketHandler(object):
     def send_ack(self):
         ack_packet = self.build_packet()
         self.socket.send(ack_packet)        
-        
+
     def handle(self, packet):
         state = self.protocol.state
         if state == LISTEN:
@@ -50,7 +50,7 @@ class IncomingPacketHandler(object):
                 elif state == LAST_ACK:
                     self.handle_incoming_on_last_ack(packet)
                 elif state == CLOSING:
-                    self.handle_incoming_on_closing(packet)                    
+                    self.handle_incoming_on_closing(packet)                
     
     def handle_incoming_on_listen(self, packet):
         if SYNFlag in packet:
@@ -71,6 +71,8 @@ class IncomingPacketHandler(object):
         expected_ack = 1 + self.protocol.iss
         if expected_ack == ack_number:
             self.initialize_control_block_from(packet)
+            self.protocol.\
+            remove_from_retransmission_queue_packets_acked_by(packet)
             self.set_state(ESTABLISHED)
             self.send_ack()
 

@@ -171,21 +171,24 @@ class PTCProtocol(object):
     def acknowledge_packets_on_retransmission_queue_with(self, packet):
         ack_number = packet.get_ack_number()
         if self.control_block.ack_is_accepted(ack_number):
-            # Only ACK numbers greater than SND_UNA and less than SND_NXT are
-            # valid here.
-            with self.rqueue:
-                snd_una = self.control_block.get_snd_una()
-                snd_nxt = self.control_block.get_snd_nxt()
-                # See which packets already enqueued are acknowledged by this
-                # packet. SND_UNA and SND_NXT are needed for properly comparing
-                # SEQs and ACKs.
-                removed_packets = self.rqueue.remove_acknowledged_by(packet,
-                                                                     snd_una,
-                                                                     snd_nxt)
-                for removed_packet in removed_packets:
-                    seq_number = removed_packet.get_seq_number()
-                    if seq_number in self.retransmission_attempts:
-                        del self.retransmission_attempts[seq_number]
+            self.remove_from_retransmission_queue_packets_acked_by(packet)
+            
+    def remove_from_retransmission_queue_packets_acked_by(self, packet):
+        # Only ACK numbers greater than SND_UNA and less than SND_NXT are
+        # valid here.
+        with self.rqueue:
+            snd_una = self.control_block.get_snd_una()
+            snd_nxt = self.control_block.get_snd_nxt()
+            # See which packets already enqueued are acknowledged by this
+            # packet. SND_UNA and SND_NXT are needed for properly comparing
+            # SEQs and ACKs.
+            removed_packets = self.rqueue.remove_acknowledged_by(packet,
+                                                                 snd_una,
+                                                                 snd_nxt)
+            for removed_packet in removed_packets:
+                seq_number = removed_packet.get_seq_number()
+                if seq_number in self.retransmission_attempts:
+                    del self.retransmission_attempts[seq_number]
         
     def handle_outgoing(self):
         if self.control_block is None:

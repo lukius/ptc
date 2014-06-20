@@ -63,6 +63,7 @@ class PTCTestCase(unittest.TestCase):
     DEFAULT_DST_ADDRESS = '192.168.0.102'
     DEFAULT_SRC_PORT = 7777
     DEFAULT_DST_PORT = 8888
+    DEFAULT_TIMEOUT = 1
     
     def setUp(self):
         self.network = Network()
@@ -176,6 +177,53 @@ class PTCTestCase(unittest.TestCase):
         thread_class = ptc.thread.PTCThread
         setattr(thread_class, 'run', self.thread_run)
         setattr(thread_class, '__init__', self.thread_init)
+        
+    def launch_server(self, address=None, port=None):
+        launched_event = threading.Event()
+        if address is None:
+            address = self.DEFAULT_DST_ADDRESS
+        if port is None:
+            port = self.DEFAULT_DST_PORT
+            
+        def run(socket):
+            socket.bind((address, port))
+            socket.listen()
+            launched_event.set()
+            try:
+                socket.accept(timeout=self.DEFAULT_TIMEOUT)
+                self.end_event.wait()
+                socket.free()
+            except Exception, e:
+                traceback.print_exc(e)
+                self.network.close()
+        
+        ptc_socket = ptc.Socket()
+        thread = threading.Thread(target=run, args=(ptc_socket,))
+        thread.start()
+        launched_event.wait()
+        return ptc_socket
+    
+    def launch_client(self, address=None, port=None):
+        if address is None:
+            address = self.DEFAULT_DST_ADDRESS
+        if port is None:
+            port = self.DEFAULT_DST_PORT
+                    
+        def run(socket):
+            socket.bind((address, port))
+            try:
+                socket.connect((self.DEFAULT_SRC_ADDRESS,
+                                self.DEFAULT_SRC_PORT))
+                self.end_event.wait()
+                socket.free()
+            except Exception, e:
+                traceback.print_exc(e)
+                self.network.close()
+        
+        ptc_socket = ptc.Socket()
+        thread = threading.Thread(target=run, args=(ptc_socket,))
+        thread.start()
+        return ptc_socket        
         
 
 class ConnectedSocketTestCase(PTCTestCase):
