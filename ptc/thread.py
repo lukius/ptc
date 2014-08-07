@@ -31,8 +31,12 @@ class Clock(PTCThread):
     
     def __init__(self, protocol):
         PTCThread.__init__(self, protocol)
+        self.ticks = 0
         self.subscribers = set()
         self.lock = threading.RLock()
+        
+    def get_ticks(self):
+        return self.ticks
         
     def do_run(self):
         self.wait()
@@ -62,6 +66,7 @@ class Clock(PTCThread):
         self.protocol.tick()
         for obj in subscribers:
             obj.tick()
+        self.ticks += 1
     
         
 class PacketReceiver(PTCThread):

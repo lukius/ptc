@@ -28,3 +28,9 @@ NULL_ADDRESS = '0.0.0.0'
 RECEIVE_BUFFER_SIZE = 1024
 
 MSS = 2*1024*1024
+
+# TODO: this is getting ugly. Better organization required.
+INITIAL_RTO = 1
+ALPHA = 0.125
+BETA = 0.25
+K = 4

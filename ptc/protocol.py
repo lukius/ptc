@@ -16,6 +16,7 @@ from rqueue import RetransmissionQueue
 from seqnum import SequenceNumber
 from soquete import Soquete
 from thread import Clock, PacketSender, PacketReceiver
+from timer import RetransmissionTimer
 
 
 class PTCProtocol(object):
@@ -34,11 +35,15 @@ class PTCProtocol(object):
         self.packet_handler = IncomingPacketHandler(self) 
         self.close_event = threading.Event()
         self.initialize_threads()
+        self.initialize_timers()
         
     def initialize_threads(self):
         self.packet_sender = PacketSender(self)
         self.packet_receiver = PacketReceiver(self)
         self.clock = Clock(self)
+    
+    def initialize_timers(self):
+        self.retransmission_timer = RetransmissionTimer(self)
         
     def start_threads(self):
         self.packet_receiver.start()
