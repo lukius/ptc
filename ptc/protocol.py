@@ -3,16 +3,17 @@ import random
 
 
 from cblock import PTCControlBlock
-from constants import MSS, CLOSED, ESTABLISHED, SYN_SENT,\
-                      LISTEN, FIN_WAIT1, FIN_WAIT2, MAX_SEQ,\
-                      MAX_RETRANSMISSION_ATTEMPTS, SHUT_RD, SHUT_WR,\
-                      SHUT_RDWR, CLOSE_WAIT, LAST_ACK, CLOSING,\
-                      RECEIVE_BUFFER_SIZE
+from constants import CLOSED, ESTABLISHED, SYN_SENT,\
+                      LISTEN, FIN_WAIT1, FIN_WAIT2,\
+                      CLOSE_WAIT, LAST_ACK, CLOSING,\
+                      SHUT_RD, SHUT_WR, SHUT_RDWR,\
+                      MSS, MAX_SEQ, RECEIVE_BUFFER_SIZE
 from exceptions import PTCError
 from handler import IncomingPacketHandler
 from packet import ACKFlag, FINFlag, SYNFlag
 from packet_utils import PacketBuilder
 from rqueue import RetransmissionQueue
+from rto import RTOEstimator
 from seqnum import SequenceNumber
 from soquete import Soquete
 from thread import Clock, PacketSender, PacketReceiver
@@ -26,13 +27,14 @@ class PTCProtocol(object):
         self.control_block = None
         self.packet_builder = PacketBuilder()
         self.socket = Soquete()
-        self.rcv_wnd = RECEIVE_BUFFER_SIZE        
+        self.rcv_wnd = RECEIVE_BUFFER_SIZE
         self.iss = self.compute_iss()
         self.rqueue = RetransmissionQueue()
-        self.retransmission_attempts = dict()
         self.read_stream_open = True
         self.write_stream_open = True
-        self.packet_handler = IncomingPacketHandler(self) 
+        self.packet_handler = IncomingPacketHandler(self)
+        self.rto_estimator = RTOEstimator(self)
+        self.ticks = 0
         self.close_event = threading.Event()
         self.initialize_threads()
         self.initialize_timers()
@@ -99,9 +101,21 @@ class PTCProtocol(object):
         packet = self.packet_builder.build(payload=payload, flags=flags,
                                            seq=seq, ack=ack, window=window)
         return packet
-        
-    def send_and_queue(self, packet):
-        self.rqueue.put(packet)
+
+    def send_and_queue(self, packet, is_retransmission=False):
+        if not is_retransmission:
+            # Karn's algorithm: do not use retransmitted packets to update
+            # RTO estimations.
+            if not self.rto_estimator.is_tracking_packets():
+                self.rto_estimator.track(packet)
+            # Enqueue this fresh packet for eventual retransmissions.
+            # Retransmissions are not re-enqueued since they remain at the
+            # head of the queue until they are acknowledged.
+            self.rqueue.put(packet)
+        if not self.retransmission_timer.is_running():
+            # Use current RTO estimation to time this packet.
+            current_rto = self.rto_estimator.get_current_rto()
+            self.retransmission_timer.start(current_rto)
         self.socket.send(packet)
         
     def set_destination_on_packet_builder(self, address, port):
@@ -150,34 +164,25 @@ class PTCProtocol(object):
             wnd_packet = self.build_packet(window=updated_rcv_wnd)
             self.socket.send(wnd_packet)
         return data
-    
+
+    def get_ticks(self):
+        return self.ticks
+
     def tick(self):
-        with self.rqueue:
-            self.rqueue.tick()
-            self.retransmit_packets_if_needed()
-        
-    def retransmit_packets_if_needed(self):
-        to_retransmit = self.rqueue.get_packets_to_retransmit()
-        for packet in to_retransmit:
-            attempts = self.update_retransmission_attempts_for(packet)
-            if attempts > MAX_RETRANSMISSION_ATTEMPTS:
-                # Give up. Maximum number of retransmissions exceeded for this
-                # packet.
-                self.free()
-            else:
-                self.send_and_queue(packet)
-    
-    def update_retransmission_attempts_for(self, packet):
-        seq_number = packet.get_seq_number()
-        attempts = 1 + self.retransmission_attempts.setdefault(seq_number, 0)
-        self.retransmission_attempts[seq_number] = attempts
-        return attempts
-    
-    def acknowledge_packets_on_retransmission_queue_with(self, packet):
+        self.ticks += 1
+        self.retransmission_timer.tick()
+
+    def acknowledge_packets_and_update_timers_with(self, packet):
+        # First, pass this packet to the RTO estimator in order to update
+        # its values if appropriate (that is, if the packet is acknowledging
+        # the packet tracked by it).
+        self.rto_estimator.process_ack(packet)
         ack_number = packet.get_ack_number()
         if self.control_block.ack_is_accepted(ack_number):
+            # Then, remove enqueued packets and stop/restart the retransmission
+            # timer as required.
             self.remove_from_retransmission_queue_packets_acked_by(packet)
-            
+
     def remove_from_retransmission_queue_packets_acked_by(self, packet):
         # Only ACK numbers greater than SND_UNA and less than SND_NXT are
         # valid here.
@@ -190,18 +195,31 @@ class PTCProtocol(object):
             removed_packets = self.rqueue.remove_acknowledged_by(packet,
                                                                  snd_una,
                                                                  snd_nxt)
-            for removed_packet in removed_packets:
-                seq_number = removed_packet.get_seq_number()
-                if seq_number in self.retransmission_attempts:
-                    del self.retransmission_attempts[seq_number]
-        
+
+            if self.rqueue.empty():
+                # All outstanding data was acknowledged. Stop timer.
+                self.retransmission_timer.stop()
+            elif len(removed_packets) > 0:
+                # Some data was acknowledged, but some still remains.
+                # Restart the timer using current RTO estimation.
+                current_rto = self.rto_estimator.get_current_rto()
+                self.retransmission_timer.restart(current_rto)
+
     def handle_outgoing(self):
         if self.control_block is None:
-            # When connection is still not established, we don't have 
+            # When connection is still not established, we don't have
             # anything to send.
             return
         with self.control_block:
-            if self.write_stream_open or self.control_block.has_data_to_send():
+            # See first if we have a transmission timeout.
+            if self.retransmission_timer.has_expired():
+                # Back off RTO and then retransmit the earliest packet not yet
+                # acknowledged.
+                self.rto_estimator.back_off_rto()
+                packet = self.rqueue.head()
+                self.send_and_queue(packet, is_retransmission=True)
+            elif self.write_stream_open or \
+                 self.control_block.has_data_to_send():
                 self.attempt_to_send_data()
             else:
                 # Send FIN when:
@@ -210,7 +228,7 @@ class PTCProtocol(object):
                 #     (i.e., FIN was not yet sent), and
                 #   * Every outgoing byte was successfully acknowledged.
                 self.attempt_to_send_FIN()
-            
+
     def attempt_to_send_data(self):
         window_closed = False
         while self.control_block.has_data_to_send() and not window_closed:

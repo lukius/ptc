@@ -31,6 +31,7 @@ MSS = 2*1024*1024
 
 # TODO: this is getting ugly. Better organization required.
 INITIAL_RTO = 1 / CLOCK_TICK
+MAX_RTO = 60 / CLOCK_TICK
 ALPHA = 0.125
 BETA = 0.25
 K = 4

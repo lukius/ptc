@@ -1,6 +1,6 @@
 import threading
 
-from constants import INITIAL_RTO, ALPHA, BETA, K
+from constants import INITIAL_RTO, MAX_RTO, ALPHA, BETA, K
 from seqnum import SequenceNumber
 
 
@@ -23,25 +23,26 @@ class RTOEstimator(object):
         with self.lock:
             return self.tracking
         
-    def get_clock_ticks(self):
-        return self.protocol.clock.get_ticks()
-    
     def track(self, packet):
         with self.lock:
             self.seq_being_timed = packet.get_seq_number()
-            self.rtt_start_time = self.get_clock_ticks()
+            self.rtt_start_time = self.protocol.get_ticks()
             self.tracking = True
         
     def untrack(self):
         with self.lock:
             self.tracking = False
         
+    def back_off_rto(self):
+        with self.lock:
+            self.rto = min(MAX_RTO, 2 * self.rto)
+
     def process_ack(self, ack_packet):
         with self.lock:
             if not self.tracking:
                 return
             if self.ack_covers_tracked_packet(ack_packet.get_ack_number()):
-                sampled_rtt = self.get_clock_ticks() - self.rtt_start_time
+                sampled_rtt = self.protocol.get_ticks() - self.rtt_start_time
                 self.update_rtt_estimation_with(sampled_rtt)
                 self.update_rto()
                 self.untrack()

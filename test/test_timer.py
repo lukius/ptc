@@ -1,7 +1,4 @@
-import time
-
 from base import ConnectedSocketTestCase
-from ptc.constants import CLOCK_TICK
 from ptc.exceptions import PTCError
 from ptc.timer import PTCTimer
 
@@ -20,24 +17,38 @@ class TimerTest(ConnectedSocketTestCase):
     
     def set_up(self):
         ConnectedSocketTestCase.set_up(self)
-        self.target_ticks = 5
-        self.target_time = self.target_ticks * CLOCK_TICK
+        self.target_ticks = 3
         self.timer = CustomTimer(self.socket.protocol)
     
+    def do_ticks(self, ticks):
+        for _ in range(ticks):
+            self.timer.tick()
+                                
     def test_timer_expires(self):
         self.timer.start(self.target_ticks)
-        # Sleep slightly more in order to be certain that it indeed expired.
-        time.sleep(self.target_time + CLOCK_TICK)
+        self.do_ticks(self.target_ticks)
 
         self.assertTrue(self.timer.expired)
         
     def test_timer_stopped_before_expiring(self):
         self.timer.start(self.target_ticks)
-        time.sleep(CLOCK_TICK)
+        self.timer.tick()
         self.timer.stop()
-        time.sleep(self.target_time)
 
         self.assertFalse(self.timer.expired)
+        
+    def test_timer_restarted(self):
+        new_target_ticks = self.target_ticks - 1
+        self.timer.start(self.target_ticks)
+        self.timer.tick()
+        self.timer.restart(new_target_ticks)
+        
+        self.assertEquals(0, self.timer.current_ticks)
+        self.assertEquals(new_target_ticks, self.timer.target_ticks)
+        
+        self.do_ticks(new_target_ticks)
+        
+        self.assertTrue(self.timer.expired)
         
     def test_timer_cannot_be_started_twice(self):
         self.timer.start(self.target_ticks)
