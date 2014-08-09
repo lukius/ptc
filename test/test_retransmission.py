@@ -1,7 +1,6 @@
 import time
 
 from base import ConnectedSocketTestCase, PTCTestCase
-from ptc.constants import RETRANSMISSION_TIMEOUT, MAX_RETRANSMISSION_ATTEMPTS
 from ptc.packet import SYNFlag, ACKFlag
 
 
@@ -63,8 +62,14 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
         packets = self.get_retransmitted_packets()
         
         self.assertGreater(MAX_RETRANSMISSION_ATTEMPTS, len(packets))
-        self.assertTrue(self.socket.is_connected())        
+        self.assertTrue(self.socket.is_connected())    
         
+    def test_nothing_to_retransmit_if_timeout_has_not_expired(self):
+        pass
+    
+    def test_acknowledged_packet_should_not_be_retransmited(self):
+        pass
+    
     def test_unaccepted_ack_ignored_when_updating_retransmission_queue(self):
         ack_number = self.DEFAULT_ISS + self.DEFAULT_IW + 1
         ack_packet = self.packet_builder.build(flags=[ACKFlag],
