@@ -1,6 +1,8 @@
+import socket
 import time
 
 from base import ConnectedSocketTestCase, PTCTestCase
+from ptc.constants import INITIAL_RTO, CLOCK_TICK, MAX_RETRANSMISSION_ATTEMPTS
 from ptc.packet import SYNFlag, ACKFlag
 
 
@@ -17,10 +19,11 @@ class RetransmissionTestMixin(object):
         # The first packet should be the original one.
         return packets[1:]
     
-    def wait_until_total_retransmission_time_expires(self):
-        time.sleep((1 + MAX_RETRANSMISSION_ATTEMPTS) * RETRANSMISSION_TIMEOUT)
+    def wait_until_retransmission_timer_expires(self):
+        time.sleep(INITIAL_RTO * CLOCK_TICK)
         
-        
+
+# TODO: refactor tests.
 class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
     
     def assert_retransmission(self, first_packet, second_packet):
@@ -34,17 +37,20 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
     def test_retransmission_after_lost_packet(self):
         self.socket.send(self.DEFAULT_DATA)
         first_packet = self.receive(self.DEFAULT_TIMEOUT)
-        time.sleep(RETRANSMISSION_TIMEOUT)
+        self.wait_until_retransmission_timer_expires()
         second_packet = self.receive(self.DEFAULT_TIMEOUT)
 
         self.assert_retransmission(first_packet, second_packet)
         
     def test_give_up_after_enough_retransmissions(self):
         self.socket.send(self.DEFAULT_DATA)
-        self.wait_until_total_retransmission_time_expires()
-        packets = self.get_retransmitted_packets()
-        
-        self.assertEquals(MAX_RETRANSMISSION_ATTEMPTS, len(packets))
+        self.receive()
+        # This will make the protocol think that it has already retransmitted
+        # that number of times.
+        self.socket.protocol.retransmissions = MAX_RETRANSMISSION_ATTEMPTS
+        self.wait_until_retransmission_timer_expires()
+
+        self.assertRaises(socket.timeout, self.receive, self.DEFAULT_TIMEOUT)
         self.assertFalse(self.socket.is_connected())
         
     def test_packet_removed_from_retransmission_queue_after_ack(self):
@@ -58,17 +64,11 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
         self.socket.send(data)
         self.receive()
         self.send(ack_packet)
-        self.wait_until_total_retransmission_time_expires()
+        self.wait_until_retransmission_timer_expires()
         packets = self.get_retransmitted_packets()
         
-        self.assertGreater(MAX_RETRANSMISSION_ATTEMPTS, len(packets))
-        self.assertTrue(self.socket.is_connected())    
-        
-    def test_nothing_to_retransmit_if_timeout_has_not_expired(self):
-        pass
-    
-    def test_acknowledged_packet_should_not_be_retransmited(self):
-        pass
+        self.assertEquals(0, len(packets))
+        self.assertTrue(self.socket.is_connected())
     
     def test_unaccepted_ack_ignored_when_updating_retransmission_queue(self):
         ack_number = self.DEFAULT_ISS + self.DEFAULT_IW + 1
@@ -78,11 +78,117 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
                                                window=self.DEFAULT_IW)
         self.socket.send(self.DEFAULT_DATA)
         self.send(ack_packet)
-        self.wait_until_total_retransmission_time_expires()
+        self.wait_until_retransmission_timer_expires()
         packets = self.get_retransmitted_packets()
         
-        self.assertEquals(MAX_RETRANSMISSION_ATTEMPTS, len(packets))
-        self.assertFalse(self.socket.is_connected())
+        self.assertEquals(1, len(packets))
+        self.assertTrue(self.socket.is_connected())
+        
+    def test_retransmission_timer_off_after_acking_all_data(self):
+        size = 10
+        data = self.DEFAULT_DATA[:size]
+        ack_number = self.DEFAULT_ISS + size
+        ack_packet = self.packet_builder.build(flags=[ACKFlag],
+                                               seq=self.DEFAULT_IRS,
+                                               ack=ack_number,
+                                               window=self.DEFAULT_IW)
+        self.socket.send(data)
+        self.receive()
+        self.send(ack_packet)
+        timer = self.socket.protocol.retransmission_timer
+        
+        self.assertFalse(timer.is_running())
+    
+    def test_retransmission_time_backed_off_after_retransmission(self):
+        rto_estimator = self.socket.protocol.rto_estimator
+        first_rto = rto_estimator.get_current_rto()
+        self.socket.send(self.DEFAULT_DATA)
+        self.receive()
+        self.wait_until_retransmission_timer_expires()
+        # To ensure that the retransmission happened.
+        self.receive()
+        new_rto = rto_estimator.get_current_rto()
+        
+        self.assertEquals(2*first_rto, new_rto)
+    
+    def test_retransmission_timer_restarted_after_acking_some_data(self):
+        size = 5
+        data = self.DEFAULT_DATA[:size]
+        ack_number = self.DEFAULT_ISS + size
+        ack_packet = self.packet_builder.build(flags=[ACKFlag],
+                                               seq=self.DEFAULT_IRS,
+                                               ack=ack_number,
+                                               window=self.DEFAULT_IW)
+        rto_estimator = self.socket.protocol.rto_estimator
+        first_rto = rto_estimator.get_current_rto()        
+        self.socket.send(data)
+        self.receive()
+        self.socket.send(data)
+        self.receive()
+        # ACK the first packet but not the second one.
+        self.send(ack_packet)
+        timer = self.socket.protocol.retransmission_timer
+        new_rto = rto_estimator.get_current_rto()
+
+        self.assertTrue(timer.is_running())
+        # The first sampled RTO should be lesser than the initial one, fixed at
+        # 1 second.
+        self.assertLess(new_rto, first_rto)
+    
+    def test_retransmitted_packet_not_used_for_estimating_rto_1(self):
+        # Scenario: a packet is transmitted and retransmitted immediately,
+        # and the ACK comes after.
+        size = 10
+        data = self.DEFAULT_DATA[:size]
+        ack_number = self.DEFAULT_ISS + size
+        ack_packet = self.packet_builder.build(flags=[ACKFlag],
+                                               seq=self.DEFAULT_IRS,
+                                               ack=ack_number,
+                                               window=self.DEFAULT_IW)
+        rto_estimator = self.socket.protocol.rto_estimator
+        self.socket.send(data)
+        self.receive()
+        self.wait_until_retransmission_timer_expires()
+        self.receive()
+        first_rto = rto_estimator.get_current_rto()        
+        self.send(ack_packet)
+        new_rto = rto_estimator.get_current_rto()
+
+        # Both RTOs should match, since the ACK arrived after the
+        # retransmission of the packet.
+        self.assertEquals(first_rto, new_rto)
+        
+    def test_retransmitted_packet_not_used_for_estimating_rto_2(self):
+        # Scenario: two packets are transmitted. The first one is ACKed,
+        # but the second one is retransmitted and ACKed after.
+        size = 5
+        data = self.DEFAULT_DATA[:size]
+        ack_number1 = self.DEFAULT_ISS + size
+        ack_number2 = self.DEFAULT_ISS + 2*size
+        ack_packet1 = self.packet_builder.build(flags=[ACKFlag],
+                                                seq=self.DEFAULT_IRS,
+                                                ack=ack_number1,
+                                                window=self.DEFAULT_IW)
+        ack_packet2 = self.packet_builder.build(flags=[ACKFlag],
+                                                seq=self.DEFAULT_IRS,
+                                                ack=ack_number2,
+                                                window=self.DEFAULT_IW)        
+        rto_estimator = self.socket.protocol.rto_estimator
+        self.socket.send(data)
+        self.receive()
+        self.socket.send(data)
+        self.receive()
+        # ACK the first packet but not the second one.
+        self.send(ack_packet1)
+        self.wait_until_retransmission_timer_expires()
+        self.receive()
+        first_rto = rto_estimator.get_current_rto()
+        self.send(ack_packet2)        
+        new_rto = rto_estimator.get_current_rto()
+
+        # Both RTOs should match, since the ACK arrived after the
+        # retransmission of the second packet.
+        self.assertEquals(first_rto, new_rto)        
         
 
 class SYNRetransmissionTest(PTCTestCase, RetransmissionTestMixin):
@@ -96,7 +202,7 @@ class SYNRetransmissionTest(PTCTestCase, RetransmissionTestMixin):
                                                    seq=seq_number,
                                                    ack=received_seq_number+1)
         self.send(syn_ack_packet)
-        self.wait_until_total_retransmission_time_expires()
+        self.wait_until_retransmission_timer_expires()
         packets = self.get_retransmitted_packets()
         
         self.assertEquals(0, len(packets))

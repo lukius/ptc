@@ -18,6 +18,10 @@ class RTOEstimator(object):
     def get_current_rto(self):
         with self.lock:
             return self.rto
+        
+    def get_tracked_packet(self):
+        with self.lock:
+            return self.tracked_packet
     
     def is_tracking_packets(self):
         with self.lock:
@@ -25,7 +29,7 @@ class RTOEstimator(object):
         
     def track(self, packet):
         with self.lock:
-            self.seq_being_timed = packet.get_seq_number()
+            self.tracked_packet = packet
             self.rtt_start_time = self.protocol.get_ticks()
             self.tracking = True
         
@@ -64,5 +68,5 @@ class RTOEstimator(object):
     
     def ack_covers_tracked_packet(self, ack_number):
         iss = self.protocol.iss
-        return SequenceNumber.a_leq_b_leq_c(iss, self.seq_being_timed,
-                                            ack_number)
+        seq_number = self.tracked_packet.get_seq_number() 
+        return SequenceNumber.a_leq_b_leq_c(iss, seq_number, ack_number)

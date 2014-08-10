@@ -8,19 +8,22 @@ class DataExchangeTest(ConnectedSocketTestCase):
     def receive_data(self):
         data = str()
         timeout = 0.5
+        seqs_seen = set()
         while True:
             try:
                 packet = self.receive(timeout)
             except:
                 break
-            payload = packet.get_payload()
-            seq_number = packet.get_seq_number() + len(payload)
-            data += payload
-            ack_packet = self.packet_builder.build(flags=[ACKFlag],
-                                                   seq=self.DEFAULT_IRS,
-                                                   ack=seq_number,
-                                                   window=self.DEFAULT_IW)
-            self.send(ack_packet)
+            seq_number, ack_number = packet.get_seq_interval()
+            # This is to avoid extracting data from retransmissions.
+            if seq_number not in seqs_seen:
+                seqs_seen.add(seq_number)
+                data += packet.get_payload()
+                ack_packet = self.packet_builder.build(flags=[ACKFlag],
+                                                       seq=self.DEFAULT_IRS,
+                                                       ack=ack_number,
+                                                       window=self.DEFAULT_IW)
+                self.send(ack_packet)
         return data
     
     def test_sending_data(self):
