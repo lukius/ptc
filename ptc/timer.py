@@ -51,15 +51,6 @@ class PTCTimer(object):
                 self.on_expired()
                 self.stop()
     
-    def __eq__(self, other):
-        # Equality based on classname since we will not need more than one
-        # timer of each kind.
-        other_classname = other.__class__.__name__
-        return self.__class__.__name__ == other_classname
-
-    def __hash__(self):
-        return hash(self.__class__.__name__)
-    
 
 class RetransmissionTimer(PTCTimer):
     
