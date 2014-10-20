@@ -2,7 +2,9 @@ import socket
 import time
 
 from base import ConnectedSocketTestCase, PTCTestCase
-from ptc.constants import INITIAL_RTO, CLOCK_TICK, MAX_RETRANSMISSION_ATTEMPTS
+from ptc.constants import INITIAL_RTO, CLOCK_TICK,\
+                          MAX_RETRANSMISSION_ATTEMPTS,\
+                          BOGUS_RTT_RETRANSMISSIONS
 from ptc.packet import SYNFlag, ACKFlag
 
 
@@ -110,6 +112,19 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
         new_rto = rto_estimator.get_current_rto()
         
         self.assertEquals(2*first_rto, new_rto)
+        
+    def test_rtt_cleared_after_several_retransmissions(self):
+        rto_estimator = self.socket.protocol.rto_estimator
+        srtt = rto_estimator.srtt
+        self.socket.send(self.DEFAULT_DATA)
+        self.receive()
+        # This will make the protocol think that it has already retransmitted
+        # that number of times.
+        self.socket.protocol.retransmissions = BOGUS_RTT_RETRANSMISSIONS
+        self.wait_until_retransmission_timer_expires()
+
+        self.assertEquals(0, rto_estimator.srtt)
+        self.assertEquals(srtt, rto_estimator.rttvar)
     
     def test_retransmission_timer_restarted_after_acking_some_data(self):
         size = 5

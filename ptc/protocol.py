@@ -8,7 +8,8 @@ from constants import CLOSED, ESTABLISHED, SYN_SENT,\
                       CLOSE_WAIT, LAST_ACK, CLOSING,\
                       SHUT_RD, SHUT_WR, SHUT_RDWR,\
                       MSS, MAX_SEQ, RECEIVE_BUFFER_SIZE,\
-                      MAX_RETRANSMISSION_ATTEMPTS
+                      MAX_RETRANSMISSION_ATTEMPTS,\
+                      BOGUS_RTT_RETRANSMISSIONS
 from exceptions import PTCError
 from handler import IncomingPacketHandler
 from packet import ACKFlag, FINFlag, SYNFlag
@@ -239,10 +240,13 @@ class PTCProtocol(object):
                 if self.retransmissions >= MAX_RETRANSMISSION_ATTEMPTS:
                     self.free()
                     return
+                # Clear RTT estimation; it was backed off several times and so
+                # it might no longer represent the actual RTT. 
+                if self.retransmissions > BOGUS_RTT_RETRANSMISSIONS:
+                    self.rto_estimator.clear_rtt()
                 self.retransmissions += 1
                 # Back off RTO and then retransmit the earliest packet not yet
                 # acknowledged.
-                # TODO: clear estimation when RTO is backed off several times.
                 self.rto_estimator.back_off_rto()
                 packet = self.rqueue.head()
                 self.send_and_queue(packet, is_retransmission=True)

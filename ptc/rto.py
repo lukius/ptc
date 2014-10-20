@@ -40,6 +40,12 @@ class RTOEstimator(object):
     def back_off_rto(self):
         with self.lock:
             self.rto = min(MAX_RTO, 2 * self.rto)
+            
+    def clear_rtt(self):
+        with self.lock:
+            # Keep current retransmit times until new estimates can be done.
+            self.rttvar += self.srtt
+            self.srtt = 0
 
     def process_ack(self, ack_packet):
         with self.lock:
