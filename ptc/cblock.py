@@ -112,7 +112,14 @@ class PTCControlBlock(object):
             self.snd_wl2 = ack_number
             
     def usable_window_size(self):
-        return self.snd_una + self.snd_wnd - self.snd_nxt
+        upper_limit = self.snd_una + self.snd_wnd
+        # If the upper window limit is below SND_NXT, we must return 0.
+        if SequenceNumber.a_leq_b_leq_c(self.snd_una, self.snd_nxt,
+                                        upper_limit):
+            return upper_limit - self.snd_nxt
+        else:
+            # TODO: add test!
+            return 0
     
     def has_data_to_send(self):
         return not self.out_buffer.empty()
