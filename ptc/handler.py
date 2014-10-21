@@ -22,7 +22,7 @@ class IncomingPacketHandler(object):
         
     def send_ack(self):
         ack_packet = self.build_packet()
-        self.socket.send(ack_packet)        
+        self.socket.send(ack_packet)
 
     def handle(self, packet):
         state = self.protocol.state
@@ -35,8 +35,7 @@ class IncomingPacketHandler(object):
                 # Ignore packets not following protocol specification.
                 return
             with self.control_block:
-                self.protocol.\
-                acknowledge_packets_on_retransmission_queue_with(packet)
+                self.protocol.acknowledge_packets_and_update_timers_with(packet)
                 if state == SYN_RCVD:
                     self.handle_incoming_on_syn_rcvd(packet)
                 elif state == ESTABLISHED:
@@ -44,20 +43,22 @@ class IncomingPacketHandler(object):
                 elif state == FIN_WAIT1:
                     self.handle_incoming_on_fin_wait1(packet)
                 elif state == FIN_WAIT2:
-                    self.handle_incoming_on_fin_wait2(packet)  
+                    self.handle_incoming_on_fin_wait2(packet)
                 elif state == CLOSE_WAIT:
                     self.handle_incoming_on_close_wait(packet)
                 elif state == LAST_ACK:
                     self.handle_incoming_on_last_ack(packet)
                 elif state == CLOSING:
-                    self.handle_incoming_on_closing(packet)                
+                    self.handle_incoming_on_closing(packet)
     
     def handle_incoming_on_listen(self, packet):
         if SYNFlag in packet:
             self.set_state(SYN_RCVD)
             self.initialize_control_block_from(packet)
-            self.protocol.set_destination_on_packet_builder(packet.get_source_ip(),
-                                                            packet.get_source_port())
+            destination_ip = packet.get_source_ip()
+            destination_port = packet.get_source_port()
+            self.protocol.set_destination_on_packet_builder(destination_ip,
+                                                            destination_port)
             syn_ack_packet = self.build_packet(flags=[SYNFlag, ACKFlag])
             # The next byte we send should be sequenced after the SYN flag.
             self.control_block.increment_snd_nxt()
@@ -86,7 +87,7 @@ class IncomingPacketHandler(object):
             
     def handle_incoming_fin(self, packet, next_state):
         seq_number = packet.get_seq_number()
-        # SEQ number should be the one we are expecting.        
+        # SEQ number should be the one we are expecting.
         if seq_number == self.control_block.get_rcv_nxt():
             self.set_state(next_state)
             self.protocol.read_stream_open = False

@@ -1,7 +1,8 @@
 import random
 import threading
 
-from constants import NULL_ADDRESS, SHUT_RD, SHUT_WR, SHUT_RDWR
+from constants import NULL_ADDRESS, SHUT_RD, SHUT_WR, SHUT_RDWR,\
+                      WAIT, NO_WAIT, ABORT
 from exceptions import PTCError
 from protocol import PTCProtocol
 
@@ -89,8 +90,15 @@ class Socket(object):
             raise RuntimeError('%s: invalid argument' % str(how))
         self.protocol.shutdown(how)
 
-    def close(self):
-        self.protocol.close()
+    def close(self, mode=NO_WAIT):
+        if mode not in [WAIT, NO_WAIT, ABORT]:
+            raise RuntimeError('%s: invalid argument' % str(mode))
+        # Abruptly close socket in order to avoid FIN segment retransmission
+        # in case the other party is already gone.        
+        if mode == ABORT:
+            self.free()
+        else:
+            self.protocol.close(mode)
         
     def free(self):
         self.protocol.free()
@@ -106,4 +114,5 @@ class Socket(object):
         return self
     
     def __exit__(self, *args, **kwargs):
-        self.close()
+        # Symmetric close: wait for the other party to close as well.
+        self.close(mode=WAIT)

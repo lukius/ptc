@@ -3,9 +3,10 @@ import threading
 import time
 
 from base import ConnectedSocketTestCase
-from ptc.constants import RETRANSMISSION_TIMEOUT, SHUT_RD, SHUT_WR,\
+from ptc.constants import SHUT_RD, SHUT_WR,\
                           ESTABLISHED, FIN_WAIT1, FIN_WAIT2, CLOSED,\
-                          CLOSE_WAIT, LAST_ACK, CLOSING
+                          CLOSE_WAIT, LAST_ACK, CLOSING,\
+                          INITIAL_RTO, CLOCK_TICK
 from ptc.exceptions import PTCError
 from ptc.packet import ACKFlag, FINFlag
 
@@ -83,13 +84,13 @@ class FINTest(ConnectedSocketTestCase):
                                                seq=self.DEFAULT_IRS,
                                                ack=self.DEFAULT_ISS+data_size)          
         self.socket.send(data)
+        data_packet = self.receive(self.DEFAULT_TIMEOUT)
         self.socket.shutdown(SHUT_WR)
         self.assertRaises(PTCError, self.socket.send, self.DEFAULT_DATA)
 
-        time.sleep(2*RETRANSMISSION_TIMEOUT)
-        self.send(ack_packet)
-        data_packet = self.receive(self.DEFAULT_TIMEOUT)
+        time.sleep(INITIAL_RTO * CLOCK_TICK)
         retransmitted_packet = self.receive(self.DEFAULT_TIMEOUT)
+        self.send(ack_packet)
         
         self.assertNotIn(FINFlag, data_packet)
         self.assertNotIn(FINFlag, retransmitted_packet)
