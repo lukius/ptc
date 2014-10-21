@@ -11,7 +11,7 @@ class FileTransferServer(FileTransferBase):
     def _connect_socket(self, sock):
         sock.bind((self.server_ip, self.server_port))
         sock.listen()
-        sock.accept()
+        sock.accept(timeout=10)
         
         
 if __name__ == '__main__':

@@ -7,6 +7,7 @@ from constants import CLOSED, ESTABLISHED, SYN_SENT,\
                       LISTEN, FIN_WAIT1, FIN_WAIT2,\
                       CLOSE_WAIT, LAST_ACK, CLOSING,\
                       SHUT_RD, SHUT_WR, SHUT_RDWR,\
+                      NO_WAIT,\
                       MSS, MAX_SEQ, RECEIVE_BUFFER_SIZE,\
                       MAX_RETRANSMISSION_ATTEMPTS,\
                       BOGUS_RTT_RETRANSMISSIONS
@@ -38,6 +39,7 @@ class PTCProtocol(object):
         self.rto_estimator = RTOEstimator(self)
         self.ticks = 0
         self.retransmissions = 0
+        self.close_mode = NO_WAIT
         self.close_event = threading.Event()
         self.initialize_threads()
         self.initialize_timers()
@@ -68,7 +70,12 @@ class PTCProtocol(object):
         
     def set_state(self, state):
         self.state = state
-        if state == CLOSED or state == FIN_WAIT2:
+        if state == CLOSED or\
+           (self.close_mode == NO_WAIT and state == FIN_WAIT2):
+            # Signal this event when the connection is completely closed or
+            # otherwise if the user explicitly chose to wait for the other
+            # party to close also. By default, this behavior resembles TCP
+            # (i.e., asymmetric close).
             self.close_event.set()
         if state == ESTABLISHED:
             self.connected_event.set()
@@ -306,7 +313,8 @@ class PTCProtocol(object):
         self.write_stream_open = False
         self.packet_sender.notify()
         
-    def close(self):
+    def close(self, mode=NO_WAIT):
+        self.close_mode = mode
         if self.state != CLOSED:
             self.shutdown(SHUT_RDWR)
             self.close_event.wait()

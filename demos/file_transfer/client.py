@@ -9,7 +9,7 @@ class FileTransferClient(FileTransferBase):
         self.outgoing_filename = 'dwight.jpg'
         
     def _connect_socket(self, sock):
-        sock.connect((self.server_ip, self.server_port))
+        sock.connect((self.server_ip, self.server_port), timeout=10)
 
         
 if __name__ == '__main__':

@@ -49,7 +49,6 @@ class FileTransferBase(object):
             # Finally, send every remaining byte.
             if i < len(to_send):
                 sock.send(to_send[i:])
-            sock.close()
         self._write_file()
     
     def _write_file(self):

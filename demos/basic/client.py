@@ -1,5 +1,12 @@
-from ptc import Socket, SHUT_WR
-from server import SERVER_IP, SERVER_PORT
+try:
+    from ptc import Socket, SHUT_WR
+except:
+    import sys
+    sys.path.append('../../')
+    from ptc import Socket, SHUT_WR
+
+SERVER_IP = '127.0.0.1'
+SERVER_PORT = 6677
 
 to_send = 'foo bar baz'
 received = str()
@@ -8,9 +15,9 @@ received = str()
 # underlying resources once the socket is no longer needed.
 with Socket() as client_sock:
     # Make a connection to the PTC instance running on port SERVER_PORT on
-    # host with IP address SERVER_IP. Block until it replies (no timeout was
-    # given).
-    client_sock.connect((SERVER_IP, SERVER_PORT))
+    # host with IP address SERVER_IP. Block until it replies, but give up
+    # after ten seconds.
+    client_sock.connect((SERVER_IP, SERVER_PORT), timeout=10)
     # Once here, the connection is successfully established. We can send as
     # well as receive arbitrary data.    
     client_sock.send(to_send)
