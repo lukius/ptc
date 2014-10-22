@@ -15,7 +15,7 @@ class DataExchangeTest(ConnectedSocketTestCase):
             except:
                 break
             seq_number, ack_number = packet.get_seq_interval()
-            # This is to avoid extracting data from retransmissions.
+            # Esto es para evitar extraer datos de retransmisiones.
             if seq_number not in seqs_seen:
                 seqs_seen.add(seq_number)
                 data += packet.get_payload()
@@ -90,7 +90,7 @@ class DataExchangeTest(ConnectedSocketTestCase):
         
         received = self.socket.recv(size)
         packet = self.receive(self.DEFAULT_TIMEOUT)
-        # ACK may arrive first, and so we should skip it.
+        # El ACK podría llegar primero; debemos saltearlo.
         if not packet.get_payload():
             packet = self.receive(self.DEFAULT_TIMEOUT)
         sent = packet.get_payload()

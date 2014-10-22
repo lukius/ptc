@@ -38,25 +38,25 @@ class RTOEstimatorTest(ConnectedSocketTestCase):
         real_rtt = 1
         real_rtt_ticks = real_rtt / CLOCK_TICK
         
-        # First sample
+        # Primera muestra
         time.sleep(real_rtt)
         self.rto_estimator.process_ack(self.ack_packet)
         first_rto = self.rto_estimator.get_current_rto()
         
-        # Second sample (it is irrelevant to use the same packet)
+        # Segunda muestra (es irrelevante usar el mismo paquete)
         self.rto_estimator.track(self.packet)
         time.sleep(real_rtt)
         self.rto_estimator.process_ack(self.ack_packet)
         second_rto = self.rto_estimator.get_current_rto()
         
-        # Third sample
+        # Tercera muestra
         self.rto_estimator.track(self.packet)
         time.sleep(real_rtt)
         self.rto_estimator.process_ack(self.ack_packet)
         third_rto = self.rto_estimator.get_current_rto()
         
-        # First RTO should be high. Then, as further samples are computed, the
-        # estimation should converge to the actual value.
+        # El primer RTO debería ser alto. Luego, a medida que más muestras
+        # van computándose, la estimación debería converger al valor real.
         self.assertGreater(first_rto, second_rto) 
         self.assertGreater(second_rto, third_rto)
         self.assertGreater(third_rto, real_rtt_ticks)

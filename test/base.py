@@ -89,11 +89,11 @@ class PTCTestCase(unittest.TestCase):
         self.packet_builder.set_destination_address(self.DEFAULT_DST_ADDRESS)
         
     def set_up(self):
-        # This should be overriden for custom test set-up.
+        # Overridear en subclases para dar comportamiento de setUp.
         pass
         
     def tear_down(self):
-        # This should be overriden for custom test tear-down.
+        # Ídem anterior.
         pass        
     
     def join_threads(self):
@@ -103,7 +103,8 @@ class PTCTestCase(unittest.TestCase):
         
     def send(self, packet):
         self.network.send(packet)
-        # This is to give enough time to the protocol to process the packet.
+        # Para darle tiempo suficiente al protocolo para poder procesar el
+        # paquete.
         time.sleep(0.1)
         
     def receive(self, timeout=None):

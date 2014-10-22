@@ -4,7 +4,7 @@ from constants import INITIAL_RTO, MAX_RTO, ALPHA, BETA, K
 from seqnum import SequenceNumber
 
 
-# RTO estimation following RFC 6298, but naively implemented.
+# Estimación de RTO según el RFC 6298, pero implementado en forma naive.
 class RTOEstimator(object):
     
     def __init__(self, protocol):
@@ -43,7 +43,8 @@ class RTOEstimator(object):
             
     def clear_rtt(self):
         with self.lock:
-            # Keep current retransmit times until new estimates can be done.
+            # Mantener los tiempos actuales de retransmisión hasta que puedan
+            # efectuarse nuevas estimaciones.
             self.rttvar += self.srtt
             self.srtt = 0
 
@@ -59,12 +60,13 @@ class RTOEstimator(object):
                 
     def update_rtt_estimation_with(self, sampled_rtt):
         if self.srtt == 0:
-            # First sample. Update values according to step 2.1 of the RFC.
+            # Primera muestra. Actualizar los valores de acuerdo al paso 2.1
+            # del RFC.
             self.srtt = sampled_rtt
             self.rttvar = sampled_rtt / 2
         else:
-            # We have at least one sample. Thus, update values as suggested
-            # by step 2.2 of the RFC.
+            # Tenemos por lo menos una muestra, por lo que actualizamos los
+            # valores según el paso 2.2 del RFC.
             deviation = abs(self.srtt - sampled_rtt)
             self.rttvar = (1 - BETA) * self.rttvar + BETA * deviation
             self.srtt = (1 - ALPHA) * self.srtt + ALPHA * sampled_rtt

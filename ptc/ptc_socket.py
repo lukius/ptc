@@ -93,8 +93,8 @@ class Socket(object):
     def close(self, mode=NO_WAIT):
         if mode not in [WAIT, NO_WAIT, ABORT]:
             raise RuntimeError('%s: invalid argument' % str(mode))
-        # Abruptly close socket in order to avoid FIN segment retransmission
-        # in case the other party is already gone.        
+        # Cerrar el socket abrutpamente para evitar eventuales retransmisiones
+        # del FIN en caso de que el interlocutor haya desaparecido.
         if mode == ABORT:
             self.free()
         else:
@@ -114,5 +114,8 @@ class Socket(object):
         return self
     
     def __exit__(self, *args, **kwargs):
-        # Symmetric close: wait for the other party to close as well.
+        # Cierre simétrico: esperar a que el interlocutor también decida cerrar
+        # su porción de la conexión. Esto evita demoras en ciertos casos donde,
+        # al terminar un bloque with, el interlocutor ya no está del otro lado
+        # por haber terminado primero y haber recibido el ACK de su FIN.
         self.close(mode=WAIT)

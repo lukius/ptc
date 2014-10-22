@@ -1,14 +1,14 @@
-# Protocol ID field of IP header
+# Campo Protocol ID del header IP
 PROTOCOL_NUMBER = 202
 
-# Clock granularity in seconds
+# Granularidad del reloj (en segundos)
 CLOCK_TICK = 0.01
 
-# Maximum SEQ/ACK number and maximum window
+# Máximo SEQ/ACK y máximo tamaño de ventana
 MAX_SEQ = (1<<32) - 1
 MAX_WND = (1<<16) - 1
 
-# Protocol states
+# Estados del protocolo
 SYN_SENT = 1
 SYN_RCVD = 2
 ESTABLISHED = 3
@@ -20,26 +20,25 @@ CLOSE_WAIT = 12
 LAST_ACK = 13
 CLOSING = 14
 
-# Socket shutdown modes
+# Modos soportados por el método shutdown de los sockets
 SHUT_RD = 0
 SHUT_WR = 1
 SHUT_RDWR = 2
 
-# Socket close modes
-WAIT = 3    # Close gracefully and synchronized with the other party
-NO_WAIT = 4 # Close gracefully; don't wait for the other party to close
-ABORT = 5   # Close immediately; abort the connection
+# Modos soportados por el método close de los sockets
+WAIT = 3    # Cerrar normalmente y en forma sincronizada con el interlocutor
+NO_WAIT = 4 # Cerrar normalmente; no esperar a que interlocutor también cierre
+ABORT = 5   # Cerrar inmediatamente; abortar la conexión
 
 NULL_ADDRESS = '0.0.0.0'
 
-# Size in bytes of the buffer that holds incoming data
+# Tamaño en bytes del buffer que almacena los datos entrantes
 RECEIVE_BUFFER_SIZE = 1024
 
-# Maximum segment size
+# Tamaño máximo de segmento
 MSS = 2*1024*1024
 
-# RTO estimation and retransmission constants
-# TODO: this is getting ugly. Better organization required.
+# Constantes vinculadas a estimación del RTO y retransmisiones
 MAX_RETRANSMISSION_ATTEMPTS = 12
 BOGUS_RTT_RETRANSMISSIONS = MAX_RETRANSMISSION_ATTEMPTS / 4
 INITIAL_RTO = 1 / CLOCK_TICK

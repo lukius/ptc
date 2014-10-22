@@ -14,14 +14,14 @@ from ptc.packet import ACKFlag, FINFlag
 class FINTest(ConnectedSocketTestCase):
     
     def set_state_on_socket(self, state):
-        # Simulate what the protocol does when changing states.
+        # Simular lo que hace el protocolo al transicionar a estos estados.
         self.socket.protocol.state = state
         if state == CLOSE_WAIT:
             self.socket.protocol.read_stream_open = False
         if state in [FIN_WAIT1, FIN_WAIT2]:
             self.socket.protocol.write_stream_open = False
         if state == FIN_WAIT1:
-            # To simulate than a FIN was already sent.
+            # Para simular que ya fue enviado el FIN.
             self.socket.protocol.control_block.increment_snd_nxt()        
     
     def test_close_read_stream(self):
@@ -33,7 +33,7 @@ class FINTest(ConnectedSocketTestCase):
                                                 window=self.DEFAULT_IW,
                                                 payload=data)
         self.send(data_packet)
-        # Discard ACK packet.
+        # Descartar ACK.
         self.receive(self.DEFAULT_TIMEOUT)
         self.socket.shutdown(SHUT_RD)
         data_packet = self.packet_builder.build(flags=[ACKFlag],
@@ -46,12 +46,12 @@ class FINTest(ConnectedSocketTestCase):
         data_received = self.socket.recv(2*data_size)
         
         self.assertEquals(ESTABLISHED, self.socket.protocol.state)
-        # Data after shutdown should be discarded.
+        # Los datos después del shutdown deberían ignorarse.
         self.assertEquals(data, data_received)
         
-        # Send stream should be working normally.
+        # El stream de salida debería estar funcionando bien.
         self.socket.send(data)
-        # This is to ignore the update window packet.
+        # Para ignorar el paquete de actualización de ventana.
         self.receive(self.DEFAULT_TIMEOUT)
         packet = self.receive(self.DEFAULT_TIMEOUT)
         self.assertNotIn(FINFlag, packet)
@@ -70,7 +70,7 @@ class FINTest(ConnectedSocketTestCase):
     def receive_fin_and_assert_retransmissions(self, data_packet):
         packet = self.receive(self.DEFAULT_TIMEOUT)
         while FINFlag not in packet:
-            # This should be a retransmission.
+            # Esto debería ser una retransmisión.
             self.assertEquals(data_packet.get_seq_number(),
                               packet.get_seq_number())
             self.assertEquals(data_packet.get_payload(), packet.get_payload())
@@ -113,14 +113,14 @@ class FINTest(ConnectedSocketTestCase):
         self.send(ack_packet)
         
         self.assertEquals(FIN_WAIT2, self.socket.protocol.state)
-        # Nothing should be sent back.
+        # No deberíamos recibir nada.
         self.assertRaises(socket.timeout, self.receive, self.DEFAULT_TIMEOUT)
 
     def test_send_ack_on_fin_wait1(self):
         size = 10
         data = self.DEFAULT_DATA[:size]
-        # Below, the ACK number is "older" since we are just interested in
-        # sending data and receiving the respective ACK.
+        # El #ACK es "viejo" porque sólo interesa enviar datos y recibir el ACK
+        # respectivo.
         packet = self.packet_builder.build(flags=[ACKFlag],
                                            seq=self.DEFAULT_IRS,
                                            ack=self.DEFAULT_ISS-1,
@@ -287,9 +287,9 @@ class FINTest(ConnectedSocketTestCase):
                                                    ack=1+self.DEFAULT_ISS)
             self.send(ack_packet)
 
-        # The close call below will block the main thread. So, we set a timer
-        # that will unblock it by sending the ACK to the FIN triggered by that
-        # close.
+        # La llamada a close de abajo va a bloquear el thread principal.
+        # Definimos un timer que lo va a desbloquear al enviarlo un ACK para el
+        # FIN disparado por ese close.
         ack_sender = threading.Timer(1, send_ack)
         ack_sender.start()
         self.socket.close()

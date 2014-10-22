@@ -72,10 +72,11 @@ class PTCProtocol(object):
         self.state = state
         if state == CLOSED or\
            (self.close_mode == NO_WAIT and state == FIN_WAIT2):
-            # Signal this event when the connection is completely closed or
-            # otherwise if the user explicitly chose to wait for the other
-            # party to close also. By default, this behavior resembles TCP
-            # (i.e., asymmetric close).
+            # Señalizar este evento cuando la conexión queda completamente
+            # cerrada o bien cuando el usuario del socket explícitamente 
+            # eligió esperar a que el interlocutor también cierre. Por 
+            # defecto, el comportamiento es similar al de TCP (i.e., cierre
+            # asimétrico).
             self.close_event.set()
         if state == ESTABLISHED:
             self.connected_event.set()
@@ -85,7 +86,7 @@ class PTCProtocol(object):
         return SequenceNumber(value)
         
     def initialize_control_block_from(self, packet):
-        # +1 since the SYN flag is also sequenced. 
+        # +1 dado que el SYN se secuencia.
         receive_seq = 1 + packet.get_seq_number()
         send_seq = 1 + self.iss
         send_window = packet.get_window_size()
@@ -114,25 +115,25 @@ class PTCProtocol(object):
 
     def send_and_queue(self, packet, is_retransmission=False):
         if is_retransmission:
-            # Karn's algorithm: do not use retransmitted packets to update
-            # RTO estimations.
+            # Algoritmo de Karn: no usar paquetes retransmitidos para
+            # actualizar las estimaciones del RTO.
             if self.rto_estimator.is_tracking_packets():
                 tracked_packet = self.rto_estimator.get_tracked_packet()
                 tracked_seq = tracked_packet.get_seq_number()
                 if tracked_seq == packet.get_seq_number():
                     self.rto_estimator.untrack()
         else:
-            # Only fresh packets will be tracked for their RTTs (Karn's
-            # algorithm once more).
+            # Sólo se hará seguimiento de paquetes frescos para estimar el
+            # RTT (otra vez por el algoritmo de Karn). 
             if not self.rto_estimator.is_tracking_packets():
                 self.rto_estimator.track(packet)
-            # Enqueue this fresh packet for eventual retransmissions.
-            # Retransmissions are not re-enqueued since they remain at the
-            # head of the queue until they are acknowledged.
+            # Encolar este paquete fresco para eventuales retransmisiones.
+            # Las retransmisiones no se reencolan pues quedan al principio de
+            # la cola hasta que son correctamente reconocidas.
             self.rqueue.put(packet)
             
         if not self.retransmission_timer.is_running():
-            # Use current RTO estimation to time this packet.
+            # Usar la estimación actual del RTO para medir este paquete.
             current_rto = self.rto_estimator.get_current_rto()
             self.retransmission_timer.start(current_rto)
             
@@ -167,7 +168,7 @@ class PTCProtocol(object):
             raise PTCError('should listen first')
         self.connected_event = threading.Event()
         self.start_threads()
-        # Wait until client attempts to connect.
+        # Esperar hasta que un cliente desee conectarse.
         self.connected_event.wait()        
         
     def send(self, data):
@@ -195,64 +196,64 @@ class PTCProtocol(object):
     def acknowledge_packets_and_update_timers_with(self, packet):
         ack_number = packet.get_ack_number()
         if self.control_block.ack_is_accepted(ack_number):
-            # First, pass this packet to the RTO estimator in order to update
-            # its values if appropriate (that is, if the packet is acknowledging
-            # the packet tracked by it).
+            # Primero, pasar este paquete al estimador de RTO para que pueda
+            # actualizar sus valores si corresponde (esto es, si el paquete
+            # está reconociendo el paquete al que está haciendo seguimiento).
             self.rto_estimator.process_ack(packet)
-            # Then, remove enqueued packets and stop/restart the retransmission
-            # timer as required.
+            # Luego, desencolar paquetes para retransmitir y parar/reiniciar
+            # el timer de retransmisiones según corresponda.
             self.remove_from_retransmission_queue_packets_acked_by(packet)
 
     def remove_from_retransmission_queue_packets_acked_by(self, packet):
-        # Only ACK numbers greater than SND_UNA and less than SND_NXT are
-        # valid here.
+        # Sólo ACKs mayores que SND_UNA y menores que SND_NXT son válidos
+        # en este punto.
         with self.rqueue:
             snd_una = self.control_block.get_snd_una()
             snd_nxt = self.control_block.get_snd_nxt()
-            # See which packets already enqueued are acknowledged by this
-            # packet. SND_UNA and SND_NXT are needed for properly comparing
-            # SEQs and ACKs.
+            # Ver qué paquetes encolados son totalmente reconocidos por
+            # este paquete. Necesitamos SND_UNA y SND_NXT para poder
+            # comparar correctamente los SEQs y ACKs.
             removed_packets = self.rqueue.remove_acknowledged_by(packet,
                                                                  snd_una,
                                                                  snd_nxt)
 
             if len(removed_packets) > 0:
-                # Some packets were acked, and so we must update the
-                # retransmission timer accordingly.
+                # Algunos paquetes se reconocieron, por lo que debemos
+                # actualizar el timer de retransmisiones.
                 self.adjust_retransmission_timer()
                 
     def adjust_retransmission_timer(self):
-        # Start at zero retransmissions for next packet.
+        # Comenzar con cero retransmisiones para el próximo paquete.
         self.retransmissions = 0
         if self.rqueue.empty():
-            # All outstanding data was acknowledged. Stop timer.
+            # Todos los datos salientes quedaron reconocidos. Detener el timer.
             self.retransmission_timer.stop()
         else:
-            # Some data was acknowledged, but some still remains.
-            # Restart the timer using current RTO estimation.
+            # Algunos datos se reconocieron pero otros aún quedan.
+            # Reiniciar el timer usando la estimación actual del RTO.
             current_rto = self.rto_estimator.get_current_rto()
             self.retransmission_timer.restart(current_rto)
 
     def handle_outgoing(self):
         if self.control_block is None:
-            # When connection is still not established, we don't have
-            # anything to send.
+            # Cuando la conexión todavía no fue establecida, no tenemos nada
+            # para enviar.
             return
         with self.control_block:
-            # See first if we have a transmission timeout.
+            # Analizar primero si tenemos un timeout de un paquete enviado.
             if self.retransmission_timer.has_expired():
-                # If we reached the maximum retransmissions allowed,
-                # release the connection.
+                # Si alcanzamos el máximo número permitido de retransmisiones,
+                # liberar la conexión.
                 if self.retransmissions >= MAX_RETRANSMISSION_ATTEMPTS:
                     self.free()
                     return
-                # Clear RTT estimation; it was backed off several times and so
-                # it might no longer represent the actual RTT. 
+                # Limpiar la estimación del RTT si se hizo back-off reiteradas
+                # veces. Posiblemente ya no represente el RTT real.
                 if self.retransmissions > BOGUS_RTT_RETRANSMISSIONS:
                     self.rto_estimator.clear_rtt()
                 self.retransmissions += 1
-                # Back off RTO and then retransmit the earliest packet not yet
-                # acknowledged.
+                # Hacer back-off del RTO y luego retransmitir el paquete más
+                # viejo que aún no fue reconocido.
                 self.rto_estimator.back_off_rto()
                 packet = self.rqueue.head()
                 self.send_and_queue(packet, is_retransmission=True)
@@ -260,11 +261,11 @@ class PTCProtocol(object):
                  self.control_block.has_data_to_send():
                 self.attempt_to_send_data()
             else:
-                # Send FIN when:
-                #   * Write stream is closed,
-                #   * State is ESTABLISHED/CLOSE_WAIT
-                #     (i.e., FIN was not yet sent), and
-                #   * Every outgoing byte was successfully acknowledged.
+                # Mandar FIN cuando:
+                #   * El stream de escritura está cerrado,
+                #   * El estado es ESTABLISHED/CLOSE_WAIT
+                #     (i.e., todavía no se ha enviado un FIN), y
+                #   * Todo byte saliente fue exitosamente reconocido.
                 self.attempt_to_send_FIN()
 
     def attempt_to_send_data(self):
@@ -273,9 +274,9 @@ class PTCProtocol(object):
             seq_number = self.control_block.get_snd_nxt()
             to_send = self.control_block.extract_from_out_buffer(MSS)
             if not to_send:
-                # Control block returned nothing, which hints that the window
-                # is closed. Thus, we have nothing else to do until further
-                # ACKs arrive.
+                # El bloque de control no devolvió nada, lo cual es un indicio
+                # de que la ventana está cerrada. Luego, no tenemos nada más
+                # por hacer hasta que lleguen los próximos ACKs.
                 window_closed = True
             else:
                 packet = self.build_packet(payload=to_send, seq=seq_number)
@@ -285,8 +286,8 @@ class PTCProtocol(object):
         state_allows_closing = self.state in [ESTABLISHED, CLOSE_WAIT]
         if state_allows_closing and self.rqueue.empty():
             fin_packet = self.build_packet(flags=[ACKFlag, FINFlag])
-            # We are sending a FIN packet, and this flag is sequenced. Move
-            # forward the next byte sequence to be sent.
+            # Estamos enviando un FIN, y este flag se secuencia. Incrementar el
+            # siguiente byte a enviar.
             self.control_block.increment_snd_nxt()
             new_state = FIN_WAIT1 if self.state == ESTABLISHED else LAST_ACK
             self.set_state(new_state)
@@ -324,10 +325,10 @@ class PTCProtocol(object):
         if self.control_block is not None:
             self.control_block.flush_buffers()
         self.stop_threads()
-        # In case connection establishment failed, this will unlock the main
-        # thread.
+        # En caso de que el establecimiento de conexión haya fallado, esto
+        # destrabará al thread principal de la aplicación.
         self.connected_event.set()
-        # And, similarly, this will unlock the main thread if close is called
-        # and free is later invoked by some other thread, for whatever reason.
+        # Y, análogamente, esto destrabará al thread principal si se llama a
+        # close y free es luego invocada por algún otro thread.
         self.close_event.set()
         self.set_state(CLOSED)

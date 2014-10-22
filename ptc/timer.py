@@ -55,5 +55,6 @@ class PTCTimer(object):
 class RetransmissionTimer(PTCTimer):
     
     def on_expired(self):
-        # Awake the packet sender. It will take care of the retransmission.
+        # Notificar al packet sender: él se encargará de hacer la
+        # retransmisión necesaria.
         self.protocol.packet_sender.notify()

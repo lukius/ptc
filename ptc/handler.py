@@ -32,7 +32,7 @@ class IncomingPacketHandler(object):
             self.handle_incoming_on_syn_sent(packet)
         else:
             if ACKFlag not in packet:
-                # Ignore packets not following protocol specification.
+                # Ignorar paquetes que no sigan la especificación.
                 return
             with self.control_block:
                 self.protocol.acknowledge_packets_and_update_timers_with(packet)
@@ -60,7 +60,7 @@ class IncomingPacketHandler(object):
             self.protocol.set_destination_on_packet_builder(destination_ip,
                                                             destination_port)
             syn_ack_packet = self.build_packet(flags=[SYNFlag, ACKFlag])
-            # The next byte we send should be sequenced after the SYN flag.
+            # El próximo byte que enviemos debe secuenciarse después del SYN.
             self.control_block.increment_snd_nxt()
             self.socket.send(syn_ack_packet)
             
@@ -68,7 +68,7 @@ class IncomingPacketHandler(object):
         if SYNFlag not in packet or ACKFlag not in packet:
             return
         ack_number = packet.get_ack_number()
-        # +1 since the SYN flag is also sequenced.
+        # +1 dado que el SYN también se secuencia.
         expected_ack = 1 + self.protocol.iss
         if expected_ack == ack_number:
             self.initialize_control_block_from(packet)
@@ -81,21 +81,21 @@ class IncomingPacketHandler(object):
         ack_number = packet.get_ack_number()
         if self.control_block.ack_is_accepted(ack_number):
             self.set_state(ESTABLISHED)
-            # This packet is acknowledging our SYN. We must increment SND_UNA
-            # in order to reflect this.
+            # Este paquete está reconociendo nuestro SYN. Debemos incrementar
+            # SND_UNA para reflejar esto.
             self.control_block.increment_snd_una()
             
     def handle_incoming_fin(self, packet, next_state):
         seq_number = packet.get_seq_number()
-        # SEQ number should be the one we are expecting.
+        # El número de SEQ debería ser el que estamos esperando.
         if seq_number == self.control_block.get_rcv_nxt():
             self.set_state(next_state)
             self.protocol.read_stream_open = False
-            # The FIN flag is also sequenced, and so we must increment the next
-            # byte we expect to receive.
+            # El FIN también se secuencia, y por ende debemos incrementar el
+            # próximo byte que esperamos recibir.
             self.control_block.increment_rcv_nxt()
-        # Send ACK (if the previous check fails, the ACK number will be
-        # automatically set to the proper one).
+        # Enviar ACK (si el checkeo anterior falla, el número de ACK del
+        # paquete a enviar será el adecuado).
         self.send_ack()
         
     def process_on_control_block(self, packet):
@@ -104,7 +104,8 @@ class IncomingPacketHandler(object):
                                             ignore_payload=ignore_payload)
         
     def send_ack_for_packet_only_if_it_has_payload(self, packet):
-        # This is to avoid sending ACKs for plain ACK segments.
+        # Esto es para evitar el envío de ACKs para paquetes que sólo
+        # reconozcan datos.
         if packet.has_payload():
             self.send_ack()
             
@@ -114,31 +115,32 @@ class IncomingPacketHandler(object):
         else:
             self.process_on_control_block(packet)
             if not self.control_block.has_data_to_send():
-                # If some data is about to be sent, then just piggyback the ACK
-                # there. It is not necessary to manually send an ACK.
+                # Si hay datos a punto de enviarse, "piggybackear" el ACK ahí
+                # mismo. No es necesario mandar un ACK manualmente.
                 self.send_ack_for_packet_only_if_it_has_payload(packet)
         
     def handle_incoming_on_fin_wait1(self, packet):
         should_send_ack = True
         ack_number = packet.get_ack_number()
         if self.control_block.ack_is_accepted(ack_number):
-            # It can only be the ACK to our FIN packet previously sent.
+            # Sólo puede ser el ACK al FIN previamente enviado.
             self.set_state(FIN_WAIT2)
             if FINFlag in packet:
                 self.handle_incoming_fin(packet, next_state=CLOSED)
-                # This last method already sends an ACK.
+                # El método anterior ya se encarga de disparar un ACK.
                 should_send_ack = False
         else:
-            # Check if it is a FIN packet, meaning that our peer closed
-            # its write stream simultaneously.
+            # Analizar si es un FIN, lo cual significaría que nuestro
+            # interlocutor cerró su stream de escritura en simultáneo.
             if FINFlag in packet:
                 self.handle_incoming_fin(packet, next_state=CLOSING)
-                # Same comment from above applies here as well.
+                # Ídem comentario de líneas arriba.
                 should_send_ack = False
-        # We might receive data, so we must process the packet accordingly.
+        # Podríamos continuar recibiendo datos, por lo que debemos procesar el
+        # paquete de forma adecuada.
         self.process_on_control_block(packet)
         if should_send_ack:
-            # Finally, send an ACK (if this packet contains some data).
+            # Y por último mandar un ACK (de haber datos en el paquete).
             self.send_ack_for_packet_only_if_it_has_payload(packet)
             
     def handle_incoming_on_fin_wait2(self, packet):
@@ -149,14 +151,15 @@ class IncomingPacketHandler(object):
             self.send_ack_for_packet_only_if_it_has_payload(packet)
             
     def handle_incoming_on_close_wait(self, packet):
-        # We should only process incoming ACKs and ignore everything else since
-        # the other side has closed its write stream.
-        # Since the read stream is closed, we know that the control block will
-        # ignore any incoming data. 
+        # Sólo deberíamos procesar ACKs entrantes e ignorar todo lo demás
+        # (pues la otra parte ya cerró su stream de escritura).
+        # Al estar cerrado el stream de lectura, sabemos que el bloque de
+        # control ignorará eventuales datos contenidos en el paquete.
         self.process_on_control_block(packet)
     
     def set_closed_if_packet_acknowledges_fin(self, packet):
-        # Move to CLOSED only if this packet ACKs the FIN we sent before.
+        # Pasar a CLOSED sólo si este paquete reconoce el FIN que mandamos
+        # antes.
         ack_number = packet.get_ack_number()
         if self.control_block.ack_is_accepted(ack_number):
             self.set_state(CLOSED)

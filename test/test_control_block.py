@@ -124,7 +124,7 @@ class ControlBlockTest(PTCTestCase):
         self.assertEquals(self.DEFAULT_ISS, snd_una)
         self.assertEquals(ack_number - offset, snd_nxt)
         self.assertEquals(self.DEFAULT_IRS, rcv_nxt)
-        # Window should not be updated when receiving invalid ACKs.
+        # No actualizar ventana al recibir ACKs inválidos.
         self.assertEquals(self.DEFAULT_IW, snd_wnd)
         
     def test_reception_of_invalid_ack_lesser_than_snd_una(self):
@@ -147,7 +147,7 @@ class ControlBlockTest(PTCTestCase):
         self.assertEquals(self.DEFAULT_ISS, snd_una)
         self.assertEquals(self.DEFAULT_ISS + size, snd_nxt)
         self.assertEquals(self.DEFAULT_IRS, rcv_nxt)
-        # Window should not be updated when receiving invalid ACKs.
+        # No actualizar ventana al recibir ACKs inválidos.
         self.assertEquals(self.DEFAULT_IW, snd_wnd)      
     
     def test_reception_of_window_update(self):
@@ -218,7 +218,7 @@ class ControlBlockTest(PTCTestCase):
         self.assertEquals(snd_una, snd_nxt)
         self.assertEquals(self.DEFAULT_IRS, rcv_nxt)
         
-        # Send the first chunk in order to retrieve the data after.
+        # Enviar el primer bloque para obtener los datos a continuación.
         custom_data = 'x' * (self.DEFAULT_IW - offset)
         expected_data = custom_data + payload[:offset]
         packet = self.packet_builder.build(flags=[ACKFlag],
@@ -250,7 +250,7 @@ class ControlBlockTest(PTCTestCase):
         snd_nxt = self.control_block.get_snd_nxt()
         rcv_nxt = self.control_block.get_rcv_nxt()
         data = self.control_block.from_in_buffer(size)
-        # First <offset> bytes should be ignored since they fall outside
+        # Los primeros <offset> bytes deberían ignorarse al caer fuera de
         # RCV_WND.
         expected_data = payload[offset:]
         expected_size = size - offset
@@ -275,13 +275,13 @@ class ControlBlockTest(PTCTestCase):
         rcv_wnd = self.control_block.get_rcv_wnd()
         
         self.assertEquals(self.DEFAULT_IRS + size, rcv_nxt)
-        # RCV_WND should take into account the payload just processed.
+        # RCV_WND debería considerar el payload que enviamos.
         self.assertEquals(self.DEFAULT_IW - size, rcv_wnd)
         
         data = self.control_block.from_in_buffer(size)
         rcv_wnd = self.control_block.get_rcv_wnd()        
         
-        # Once this payload is consumed, RCV_WND should grow again.
+        # Y una vez consumidos los datos, la ventana debería crecer de nuevo.
         self.assertEquals(self.DEFAULT_IW, rcv_wnd)
         self.assertEquals(size, len(data))
         self.assertEquals(data, payload)                
@@ -320,7 +320,7 @@ class ControlBlockTest(PTCTestCase):
         offset = 50
         payload = self.DEFAULT_DATA[:size]
         
-        # 1. Data starts beyond RCV_NXT + RCV_WND
+        # 1. Los datos empiezan después de RCV_NXT + RCV_WND
         ack_number = self.DEFAULT_ISS
         seq_number = self.DEFAULT_IRS + self.DEFAULT_IW + offset
         packet = self.packet_builder.build(flags=[ACKFlag],
@@ -339,7 +339,7 @@ class ControlBlockTest(PTCTestCase):
         self.assertEquals(self.DEFAULT_IRS, rcv_nxt)
         self.assertFalse(self.control_block.payload_is_accepted(packet))
         
-        # 2. Data ends below RCV_NXT
+        # 2. Los datos terminan antes de RCV_NXT
         ack_number = self.DEFAULT_ISS
         seq_number = self.DEFAULT_IRS - 2*size
         packet = self.packet_builder.build(flags=[ACKFlag],

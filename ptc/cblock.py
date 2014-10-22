@@ -62,16 +62,18 @@ class PTCControlBlock(object):
             payload = packet.get_payload()
             lower = max(self.rcv_nxt, seq_lo)
             upper = min(self.rcv_nxt + self.rcv_wnd, seq_hi)
-            # Honor RCV_WND by dropping those bytes that go below it
-            # or beyond it.
+            # Honrar RCV_WND descartando aquellos bytes que están por debajo o
+            # por encima de ella.
             effective_payload = payload[lower-seq_lo:upper-seq_lo]
             self.in_buffer.add_chunk(lower, effective_payload)
             if lower == self.rcv_nxt:
-                # We should advance rcv_nxt since the lower end of the chunk
-                # just added matches its old value. The buffer tracks this
-                # value as data is inserted and removed.
+                # Deberíamos avanzar RCV_NXT dado que el límite inferior del
+                # chunk recién agregado coincide con su valor anterior. El
+                # buffer hace seguimiento de este valor a medida que se
+                # insertan y borran datos de él.
                 self.rcv_nxt = self.in_buffer.get_last_index()
-                # Decrease window until data is removed from the buffer.
+                # Decrementar la ventana hasta que se eliminen datos del
+                # buffer.
                 self.rcv_wnd = self.rcv_wnd - len(effective_payload)
     
     def process_ack(self, packet):
@@ -82,7 +84,7 @@ class PTCControlBlock(object):
             self.update_window(packet)
         
     def ack_is_accepted(self, ack_number):
-        # Accept only if  SND_UNA < ACK <= SND_NXT
+        # Aceptar sólo si SND_UNA < ACK <= SND_NXT
         return SequenceNumber.a_lt_b_leq_c(self.snd_una, ack_number,
                                            self.snd_nxt)
     
@@ -97,8 +99,8 @@ class PTCControlBlock(object):
         return last_byte >= first_byte and (first_ok or last_ok)
     
     def should_update_window(self, ack_number):
-        # TODO: add tests for this.
-        # RFC 1122, p.94 (correction to RFC 793).
+        # TODO: agregar tests para esto.
+        # RFC 1122, p.94 (corrección al RFC 793).
         return SequenceNumber.a_leq_b_leq_c(self.snd_una, ack_number,
                                             self.snd_nxt)
     
@@ -113,12 +115,13 @@ class PTCControlBlock(object):
             
     def usable_window_size(self):
         upper_limit = self.snd_una + self.snd_wnd
-        # If the upper window limit is below SND_NXT, we must return 0.
+        # Si el límite superior de la ventana está por debajo de SND_NXT,
+        # tenemos que devolver 0.
         if SequenceNumber.a_leq_b_leq_c(self.snd_una, self.snd_nxt,
                                         upper_limit):
             return upper_limit - self.snd_nxt
         else:
-            # TODO: add test!
+            # TODO: agregar test!
             return 0
     
     def has_data_to_send(self):
@@ -129,7 +132,7 @@ class PTCControlBlock(object):
     
     def from_in_buffer(self, size):
         data = self.in_buffer.get(size)
-        # Window should grow now, since data has been consumed.
+        # La ventana debería crecer ahora pues se consumieron datos del buffer.
         with self:
             self.rcv_wnd += len(data)
         return data

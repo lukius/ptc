@@ -27,8 +27,8 @@ class RetransmissionQueue(object):
             acknowledged_packets = list()
             for packet in self.queue:
                 ack = ack_packet.get_ack_number()
-                # Check that ack >= seq_lo and ack >= seq_hi simultaneously,
-                # considering that any of these values may have wrapped.
+                # Checkear que ack >= seq_lo y ack >= seq_hi simultáneamente,
+                # teniendo en cuenta que son valores modulares.
                 if self.ack_covers_packet(ack, packet, snd_una, snd_nxt):
                     acknowledged_packets.append(packet)
                 else:
@@ -37,20 +37,21 @@ class RetransmissionQueue(object):
             return acknowledged_packets
         
     def ack_covers_packet(self, ack, packet, snd_una, snd_nxt):
-        # Private method to correctly compare the ACK against the SEQs.
+        # Método privado para comparar correctamente el ACK contra los bytes
+        # secuenciados por el paquete.
         _, seq_hi = packet.get_seq_interval()
         if snd_nxt > snd_una:
-            # When SND_NXT > SND_UNA, there is no wrap-around.
-            # Thus, the ACK provided covers the packet iff
-            # ack > seq_hi = sequence number of the last byte.
+            # Cuandp SND_NXT > SND_UNA, no hay wrap-around.
+            # Luego, el ACK provisto cubre el paquete sii
+            # ack > seq_hi = número de secuencia del último byte.            
             return ack >= seq_hi
         else:
-            # When SND_NXT <= SND_UNA, SND_NXT has wrapped around.
-            # So, we have two possibilities:
-            #   * seq_hi and ack have also wrapped around, and thus
-            #     we should have seq_hi <= ack <= snd_nxt
-            #   * or just ack wrapped around, which means that it is
-            #     already greater than seq_hi. 
+            # Cuando SND_NXT <= SND_UNA, SND_NXT arrancó desde 0 al haber
+            # superado el máximo valor. Existen dos posibilidades:
+            #   * seq_hi y ack también lo hicieron, de manera que
+            #     deberíamos tener que seq_hi <= ack <= snd_nxt
+            #   * o tan solo ack superó el máximo, lo que significa que ya
+            #     es más grande que seq_hi.             
             return (seq_hi <= ack <= snd_nxt) or\
                     snd_nxt < seq_hi
             

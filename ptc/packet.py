@@ -7,7 +7,7 @@ from seqnum import SequenceNumber
 
 
 class IPChecksumAlgorithm(object):
-    # Naive, inefficient implementation of the Internet checksum algorithm.
+    # Implementación naive, ineficiente, del algorimo de checksum de Internet.
     
     @classmethod
     def for_bytes(cls, message):

@@ -68,8 +68,8 @@ class RetransmissionQueueTest(PTCTestCase):
         self.assertEquals(0, len(packets))
         
     def test_ack_covers_packet_without_wraparound(self):
-        # Case 1: snd_una < seq_lo < seq_hi < ack < snd_nxt
-        # Should be true.
+        # Caso 1: snd_una < seq_lo < seq_hi < ack < snd_nxt
+        # Debería dar verdadero.
         snd_una = SequenceNumber(75)
         snd_nxt = snd_una + 20
         seq_lo = SequenceNumber(80)
@@ -80,16 +80,16 @@ class RetransmissionQueueTest(PTCTestCase):
         result = self.queue.ack_covers_packet(ack, packet, snd_una, snd_nxt)
         self.assertTrue(result)
          
-        # Case 2: snd_una < ack < seq_lo < seq_hi < snd_nxt
-        # Should be false.
+        # Caso 2: snd_una < ack < seq_lo < seq_hi < snd_nxt
+        # Debería dar falso.
         ack = seq_lo - 1
         snd_una = ack - 1
   
         result = self.queue.ack_covers_packet(ack, packet, snd_una, snd_nxt)
         self.assertFalse(result)
           
-        # Case 3: snd_una < seq_lo < ack < seq_hi < snd_nxt
-        # Should be false.
+        # Caso 3: snd_una < seq_lo < ack < seq_hi < snd_nxt
+        # Debería dar falso.
         ack = seq_hi - 1
         snd_una = seq_lo - 1
           
@@ -97,8 +97,8 @@ class RetransmissionQueueTest(PTCTestCase):
         self.assertFalse(result)
 
     def test_ack_covers_packet_with_wraparound(self):
-        # Case 1: seq_hi < ack < snd_nxt < snd_una < seq_lo
-        # Should be true.
+        # Caso 1: seq_hi < ack < snd_nxt < snd_una < seq_lo
+        # Debería dar verdadero.
         seq_hi = SequenceNumber(10)
         ack = seq_hi + 5
         snd_nxt = ack + 1
@@ -109,24 +109,24 @@ class RetransmissionQueueTest(PTCTestCase):
         result = self.queue.ack_covers_packet(ack, packet, snd_una, snd_nxt)
         self.assertTrue(result)
         
-        # Case 2: ack < seq_hi < snd_nxt < snd_una < seq_lo
-        # Should be false.
+        # Caso 2: ack < seq_hi < snd_nxt < snd_una < seq_lo
+        # Debería dar falso.
         ack = seq_hi - 1
         snd_nxt = seq_hi + 1
         
         result = self.queue.ack_covers_packet(ack, packet, snd_una, snd_nxt)
         self.assertFalse(result)
         
-        # Case 3: seq_hi < snd_nxt < snd_una < seq_lo < ack
-        # Should be false.
+        # Caso 3: seq_hi < snd_nxt < snd_una < seq_lo < ack
+        # Debería dar falso.
         ack = seq_lo + 1
         
         result = self.queue.ack_covers_packet(ack, packet, snd_una, snd_nxt)
         self.assertFalse(result)
         
-        # Case 4: seq_hi < snd_nxt < snd_una < ack < seq_lo
-        # Should be false.
+        # Caso 4: seq_hi < snd_nxt < snd_una < ack < seq_lo
+        # Debería dar falso.
         ack = seq_lo - 1
         
         result = self.queue.ack_covers_packet(ack, packet, snd_una, snd_nxt)
-        self.assertFalse(result)        
+        self.assertFalse(result)       
