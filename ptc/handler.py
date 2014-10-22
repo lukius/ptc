@@ -1,3 +1,15 @@
+# -*- coding: utf-8 -*-
+
+##########################################################
+#                 Trabajo Práctico 3                     #
+#         Programación de protocolos end-to-end          #
+#                                                        # 
+#              Teoría de las Comunicaciones              #
+#                       FCEN - UBA                       #
+#              Segundo cuatrimestre de 2014              #
+##########################################################
+
+
 from constants import CLOSED, SYN_RCVD, ESTABLISHED, SYN_SENT,\
                       LISTEN, FIN_WAIT1, FIN_WAIT2, CLOSE_WAIT,\
                       LAST_ACK, CLOSING

@@ -1,3 +1,15 @@
+# -*- coding: utf-8 -*-
+
+##########################################################
+#                 Trabajo Práctico 3                     #
+#         Programación de protocolos end-to-end          #
+#                                                        # 
+#              Teoría de las Comunicaciones              #
+#                       FCEN - UBA                       #
+#              Segundo cuatrimestre de 2014              #
+##########################################################
+
+
 from base import PTCTestCase
 from ptc.constants import MAX_SEQ
 from ptc.packet import ACKFlag
