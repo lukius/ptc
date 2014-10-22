@@ -105,9 +105,18 @@ En este caso, la porción 1 contiene los números de secuencia del interlocutor 
 
 ##### Retransmisiones
 
-Al enviar un segmento con datos, PTC también encolará este segmento en la cola de retransmisión. Éste permanecerá allí hasta ser eventualmente reconocido. Por otro lado, el cliente también define un tiempo máximo de espera `RETRANSMISSION_TIMEOUT` para esperar por estos reconocimientos. De superarse este tiempo, se asumirá que el paquete se extravió en los rincones de la red y por ende será retransmitido.  
+Al enviar un segmento con datos, PTC también encolará este segmento en la cola de retransmisión. Éste permanecerá allí hasta ser eventualmente reconocido. El tiempo de retransmisión (RTO) se calcula dinámicamente según el RFC 6298. De superarse este tiempo, se asumirá que el paquete se extravió en los rincones de la red y por ende será retransmitido.
 
-Se define asimismo un número máximo admisible de retranmisiones, `MAX_RETRANSMISSION_ATTEMPTS`. Si algún segmento debiera ser retransmitido más veces que esta cantidad, se debe asumir que la conexión se perdió y se pasará a cerrarla sin enviar `FIN`, liberando directamente todos los recursos reservados por la conexión.
+Para cada RTT muestreado (usando el algoritmo de Karn, que evita analizar paquetes que fueron retransmitidos), se calcula lo siguiente:
+  * RTTVAR = (1 - beta) * RTTVAR + beta * |SRTT - RTT|
+  * SRTT   = (1 - alpha) * SRTT + alpha * RTT
+  * RTO    = SRTT + máx(1, K * RTTVAR) 
+
+en donde alpha = 1/8, beta = 1/4 y $K = 4.
+
+Al tomar la primera muestra, se define SRTT = RTT y RTTVAR = RTT / 2. Además, cada vez que expira el RTO, se hace back-off de este tiempo (esto es, se duplica su valor) y se retransmite sólo el paquete que esté al principio de la cola de retransmisión. Por otra parte, cuando un ACK reconoce datos, el timer se apagará sólo si todos los datos en vuelo fueron correctamente reconocidos. De no ser así, se reiniciará con la estimación del RTO actual.
+
+Se define un número máximo admisible de retranmisiones, `MAX_RETRANSMISSION_ATTEMPTS`. Si algún segmento debiera ser retransmitido más veces que esta cantidad, se debe asumir que la conexión se perdió y se pasará a cerrarla sin enviar `FIN`, liberando directamente todos los recursos reservados por la conexión.
 
 ##### Estados
 
@@ -325,7 +334,6 @@ True
 False
 ```
 
-
 ###### `packet_utils`
 
 Herramientas para facilitar la manipulación de paquetes: un decodificador de bytes (`PacketDecoder`), que es utilizado para mapear los datos recibidos de la red a un `PTCPacket`,  y un constructor de paquetes (`PacketBuilder`), que simplemente recibe argumentos (flags, número de secuencia, número de reconocimiento, ventana, etc.) y arma un paquete con tales características.   
@@ -353,13 +361,22 @@ De esta forma, al momento de enviar un `ACK`, sólo basta con invocar a este mé
 ###### `thread`
 
 Implementación de los threads en los que se apoya el protocolo para su funcionamiento:
- * Uno de ellos se encarga de simular el clock del sistema (`Clock`). Cada `CLOCK_TICK` segundos (definido por defecto en 0.1) invocará al método `tick` del protocolo.
+ * Uno de ellos se encarga de simular el clock del sistema (`Clock`). Cada `CLOCK_TICK` segundos (definido por defecto en 0.01) invocará al método `tick` del protocolo.
  * Otro tiene como objetivo monitorear el socket y recibir los paquetes (`PacketReceiver`). Al detectar la llegada de uno, se invocará el método `handle_incoming` del protocolo (que a su vez se apoyará en el handler mencionado más arriba).
  * El último de ellos es el que envía los paquetes de datos y eventualmente el `FIN` (`PacketSender`). Este comportamiento queda definido en el método `handle_outgoing` del protocolo, que es ejecutado en el contexto de este thread cada vez que ocurre algún evento que podría motivar el envío de nuevos datos (e.g., llegada de reconocimientos o invocaciones a `send` por parte del usuario).
 
 ###### `rqueue`
 
-Implementación de la cola de retransmisión (`RetransmissionQueue`). Al encolarse, los paquetes se asocian con un timestamp que irá revisándose en cada tick del reloj (mediante el método `tick`, que de hecho es invocado por el método homónimo del protocolo). Cada vez que expira un timeout, el paquete respectivo se mueve a una lista interna de paquetes a retransmitir que luego es consumida por el protocolo. Por otra parte, al procesar un `ACK`, el método `remove_acknowledged_by` permite extraer de la cola todo paquete cuyo payload quede completamente cubierto por el `#ACK` contenido en el paquete.
+Implementación de la cola de retransmisión (`RetransmissionQueue`). Los paquetes se van introduciendo en ésta a medida que son enviados por primera vez. Cada vez que expira un timeout, sólo se retransmite el paquete que fue encolado primero. Por otra parte, al procesar un `ACK`, el método `remove_acknowledged_by` permite extraer de la cola todo paquete cuyo payload quede completamente cubierto por el `#ACK` contenido en el paquete.
+
+
+###### `rto`
+
+Implementación directa del RFC 6298. La clase `RTOEstimator` mantiene variables que van reflejando el cómputo de SRTT, RTTVAR y RTO. El protocolo tiene una instancia de esta clase e interactúa con ella a medida que envía/recibe paquetes.
+
+###### `timer`
+
+Implementación de timers del protocolo. Por el momento, sólo está implementado el timer de retransmisiones, `RetransmissionTimer`. La unidad de tiempo manejada por los timers es un tick, que queda definido por la constante `CLOCK_TICK`. El protocolo, en cada interrupción del clock, hace que se avance un tick por cada timer. Éstos, internamente, mantienen la cuenta de cuántos ticks faltan para dispararse. Cada timer debe implementar un método `on_expired` para decidir qué hacer si el tiempo expira.
 
 ###### `seqnum`
 
