@@ -17,7 +17,8 @@ class FileTransferBase(object):
         self._initialize_address()
         
     def _initialize_address(self):
-        # Address and port can be supplied by command-line arguments.
+        # La dirección y el puerto pueden venir como opciones de línea de
+        # comando.
         if len(sys.argv) >= 4:
             self.server_ip = sys.argv[1]
             self.server_port = int(sys.argv[2])
@@ -32,21 +33,21 @@ class FileTransferBase(object):
         to_send = open(self.outgoing_filename).read()
         expected_size = len(open(self.incoming_filename).read())
         with Socket() as sock:
-            # Socket connection is implemented by subclasses.
-            # The client actively connects, while the server will bind to a
-            # given address and listen.
+            # La conexión del socket queda definida por cada subclase.
+            # El cliente se conecta activamente mientras que el servidor se
+            # ligará a una dirección determinada y escuchará allí.
             self._connect_socket(sock)
             i = 0
-            # In order to receive the file, iterate until we complete the
-            # desired length.
+            # Para recibir el archivo, iterar hasta que el tamaño deseado
+            # queda totalmente cubierto.
             while len(self.received_bytes) < expected_size:
-                # Being the protocol full-duplex, at the same time we can also
-                # send some data to the other side.
+                # Siendo PTC un protocolo full-duplex, al mismo tiempo también
+                # podemos mandar datos a nuestro interlocutor.
                 sock.send(to_send[i:i+self.CHUNK_SIZE])
                 chunk = sock.recv(self.CHUNK_SIZE)
                 self.received_bytes += chunk
                 i += self.CHUNK_SIZE
-            # Finally, send every remaining byte.
+            # Por último, enviar todos los bytes remanentes.
             if i < len(to_send):
                 sock.send(to_send[i:])
         self._write_file()

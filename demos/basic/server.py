@@ -11,18 +11,20 @@ SERVER_PORT = 6677
 to_send = 'Lorem ipsum dolor sit amet'
 received = str()
 
-# Use PTC sockets within with blocks. This ensures proper disposal of the
-# underlying resources once the socket is no longer needed.
+# Usar sockets PTC dentro de bloques with. Esto nos asegura que los recursos
+# subyacentes serán liberados de forma adecuada una vez que el socket ya no
+# se necesite.
 with Socket() as server_sock:
-    # Bind the socket to a local interface by supplying an (IP, PORT) tuple. 
+    # Ligar el socket a una interfaz local a través de la tupla (IP, PORT).
     server_sock.bind((SERVER_IP, SERVER_PORT))
-    # Move the socket to the LISTEN state.
+    # Pasar al estado LISTEN.
     server_sock.listen()
-    # Block until some other PTC makes an active connection. Time out after
-    # ten seconds.
+    # Esta llamada se bloqueará hasta que otro PTC intente conectarse. No
+    # obstante, luego de diez segundos de no recibir conexiones, PTC se
+    # dará por vencido.
     server_sock.accept(timeout=10)
-    # Once here, the connection is successfully established. We can send as
-    # well as receive arbitrary data.
+    # Una vez aquí, la conexión queda establecida exitosamente. Podemos enviar
+    # y recibir datos arbitrarios.
     received += server_sock.recv(15)
     server_sock.send(to_send)
 print 'server_sock received: %s' % received

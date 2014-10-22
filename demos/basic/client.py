@@ -11,19 +11,21 @@ SERVER_PORT = 6677
 to_send = 'foo bar baz'
 received = str()
 
-# Use PTC sockets within with blocks. This ensures proper disposal of the
-# underlying resources once the socket is no longer needed.
+# Usar sockets PTC dentro de bloques with. Esto nos asegura que los recursos
+# subyacentes serán liberados de forma adecuada una vez que el socket ya no
+# se necesite.
 with Socket() as client_sock:
-    # Make a connection to the PTC instance running on port SERVER_PORT on
-    # host with IP address SERVER_IP. Block until it replies, but give up
-    # after ten seconds.
+    # Establecer una conexión al PTC corriendo en el puerto SERVER_PORT en
+    # el host con dirección SERVER_IP. Esta llamada es bloqueante, aunque
+    # en este caso se declara un timeout de 10 segundos. Pasado este tiempo,
+    # el protocolo se dará por vencido y la conexión no se establecerá.
     client_sock.connect((SERVER_IP, SERVER_PORT), timeout=10)
-    # Once here, the connection is successfully established. We can send as
-    # well as receive arbitrary data.    
+    # Una vez aquí, la conexión queda establecida exitosamente. Podemos enviar
+    # y recibir datos arbitrarios.
     client_sock.send(to_send)
     received += client_sock.recv(10)
-    # We close the write stream but we can keep receiving further
-    # data.
+    # Cerramos nuestro stream de escritura pero podemos continuar recibiendo
+    # datos de la contraparte.
     client_sock.shutdown(SHUT_WR)
     received += client_sock.recv(20)
 print 'client_sock received: %s' % received
