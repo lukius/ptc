@@ -1,6 +1,3 @@
-import threading
-import traceback
-
 import ptc
 from ptc.packet import SYNFlag, ACKFlag
 from base import PTCTestCase
