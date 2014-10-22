@@ -1,7 +1,0 @@
-* El código acá presente permite generar una librería .so conteniendo el plugin de Wireshark para el protocolo PTC.
-* Para funcionar, debe copiarse este archivo al directorio de plugins globales de Wireshark (ver dónde es en Help -> About Wireshark -> Folders).
-* El Makefile está hecho para gcc sobre plataformas de 64 bits, y haciendo 'make all' genera tanto la versión del plugin de 32 bits cross-compilada como así también la nativa de 64 bits.
-* Requerimientos para poder compilar:
-  * wireshark-dev
-  * glib-2.0
-  * libc6-dev-i386 (para cross-compilar)
