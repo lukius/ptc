@@ -257,8 +257,9 @@ class PTCProtocol(object):
                 self.rto_estimator.back_off_rto()
                 packet = self.rqueue.head()
                 self.send_and_queue(packet, is_retransmission=True)
-            elif self.write_stream_open or \
-                 self.control_block.has_data_to_send():
+            
+            if self.write_stream_open or \
+               self.control_block.has_data_to_send():
                 self.attempt_to_send_data()
             else:
                 # Send FIN when:
