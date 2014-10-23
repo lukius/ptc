@@ -240,7 +240,8 @@ class PTCProtocol(object):
             return
         with self.control_block:
             # See first if we have a transmission timeout.
-            if self.retransmission_timer.has_expired():
+            if self.retransmission_timer.has_expired() and\
+               not self.rqueue.empty():
                 # If we reached the maximum retransmissions allowed,
                 # release the connection.
                 if self.retransmissions >= MAX_RETRANSMISSION_ATTEMPTS:

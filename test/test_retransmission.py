@@ -1,4 +1,5 @@
 import socket
+import threading
 import time
 
 from base import ConnectedSocketTestCase, PTCTestCase
@@ -149,6 +150,39 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
         # The first sampled RTO should be lesser than the initial one, fixed at
         # 1 second.
         self.assertLess(new_rto, first_rto)
+        
+    def test_retransmission_queue_empty_when_timer_expires(self):
+        fake_rto = 100
+        size = 5
+        data = self.DEFAULT_DATA[:size]
+        ack_number = self.DEFAULT_ISS + size
+        ack_packet = self.packet_builder.build(flags=[ACKFlag],
+                                               seq=self.DEFAULT_IRS,
+                                               ack=ack_number,
+                                               window=self.DEFAULT_IW)
+        rqueue = self.socket.protocol.rqueue
+        rto_estimator = self.socket.protocol.rto_estimator
+        timer = self.socket.protocol.retransmission_timer
+        rto_estimator.rto = fake_rto
+        thread_count = threading.active_count()
+        # Send some data. This will enqueue the packet.
+        self.socket.send(data)
+        self.receive()
+        # Now remove it from rqueue. This is quite ugly but it has to
+        # be done this way.
+        snd_una = self.socket.protocol.control_block.get_snd_una()
+        snd_nxt = self.socket.protocol.control_block.get_snd_nxt()
+        rqueue.remove_acknowledged_by(ack_packet, snd_una, snd_nxt)
+        
+        self.assertTrue(rqueue.empty())
+        self.assertTrue(timer.is_running())
+        
+        # Wait until timer expires.
+        time.sleep(2*fake_rto*CLOCK_TICK)
+        
+        # Check that we have the same number of threads (if the packet sender
+        # crashed, it will be less).
+        self.assertEquals(thread_count, threading.active_count())
     
     def test_retransmitted_packet_not_used_for_estimating_rto_1(self):
         # Scenario: a packet is transmitted and retransmitted immediately,
