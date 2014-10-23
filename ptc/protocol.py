@@ -94,7 +94,7 @@ class PTCProtocol(object):
             self.connected_event.set()
     
     def compute_iss(self):
-        value = random.randint(0, MAX_SEQ)
+        value = random.randint(0, MAX_SEQ/2)
         return SequenceNumber(value)
         
     def initialize_control_block_from(self, packet):
@@ -253,7 +253,8 @@ class PTCProtocol(object):
             return
         with self.control_block:
             # Analizar primero si tenemos un timeout de un paquete enviado.
-            if self.retransmission_timer.has_expired():
+            if self.retransmission_timer.has_expired() and\
+               not self.rqueue.empty():
                 # Si alcanzamos el máximo número permitido de retransmisiones,
                 # liberar la conexión.
                 if self.retransmissions >= MAX_RETRANSMISSION_ATTEMPTS:
@@ -269,8 +270,9 @@ class PTCProtocol(object):
                 self.rto_estimator.back_off_rto()
                 packet = self.rqueue.head()
                 self.send_and_queue(packet, is_retransmission=True)
-            elif self.write_stream_open or \
-                 self.control_block.has_data_to_send():
+            
+            if self.write_stream_open or \
+               self.control_block.has_data_to_send():
                 self.attempt_to_send_data()
             else:
                 # Mandar FIN cuando:

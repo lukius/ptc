@@ -11,6 +11,7 @@
 
 
 import socket
+import threading
 import time
 
 from base import ConnectedSocketTestCase, PTCTestCase
@@ -30,14 +31,14 @@ class RetransmissionTestMixin(object):
                 packets.append(packet)
             except Exception:
                 break
-        # El primer paquete debería ser el original.
+        # The first packet should be the original one.
         return packets[1:]
     
     def wait_until_retransmission_timer_expires(self):
         time.sleep(INITIAL_RTO * CLOCK_TICK)
         
 
-# TODO: refactorizar.
+# TODO: refactor tests.
 class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
     
     def assert_retransmission(self, first_packet, second_packet):
@@ -59,8 +60,8 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
     def test_give_up_after_enough_retransmissions(self):
         self.socket.send(self.DEFAULT_DATA)
         self.receive()
-        # Esto hará que el protocolo piense que ya retransmitió ese número de
-        # veces.
+        # This will make the protocol think that it has already retransmitted
+        # that number of times.
         self.socket.protocol.retransmissions = MAX_RETRANSMISSION_ATTEMPTS
         self.wait_until_retransmission_timer_expires()
 
@@ -119,7 +120,7 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
         self.socket.send(self.DEFAULT_DATA)
         self.receive()
         self.wait_until_retransmission_timer_expires()
-        # Para asegurarnos de que la retransmisión ocurrió.
+        # To ensure that the retransmission happened.
         self.receive()
         new_rto = rto_estimator.get_current_rto()
         
@@ -130,8 +131,8 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
         srtt = rto_estimator.srtt
         self.socket.send(self.DEFAULT_DATA)
         self.receive()
-        # Esto hará que el protocolo piense que ya retransmitió ese número de
-        # veces.
+        # This will make the protocol think that it has already retransmitted
+        # that number of times.
         self.socket.protocol.retransmissions = BOGUS_RTT_RETRANSMISSIONS
         self.wait_until_retransmission_timer_expires()
 
@@ -152,19 +153,52 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
         self.receive()
         self.socket.send(data)
         self.receive()
-        # Reconocer el primer paquete pero no el segundo.
+        # ACK the first packet but not the second one.
         self.send(ack_packet)
         timer = self.socket.protocol.retransmission_timer
         new_rto = rto_estimator.get_current_rto()
 
         self.assertTrue(timer.is_running())
-        # El primer RTO muestreado debería ser más chico que el inicial,
-        # fijado en 1 segundo.
+        # The first sampled RTO should be lesser than the initial one, fixed at
+        # 1 second.
         self.assertLess(new_rto, first_rto)
+        
+    def test_retransmission_queue_empty_when_timer_expires(self):
+        fake_rto = 100
+        size = 5
+        data = self.DEFAULT_DATA[:size]
+        ack_number = self.DEFAULT_ISS + size
+        ack_packet = self.packet_builder.build(flags=[ACKFlag],
+                                               seq=self.DEFAULT_IRS,
+                                               ack=ack_number,
+                                               window=self.DEFAULT_IW)
+        rqueue = self.socket.protocol.rqueue
+        rto_estimator = self.socket.protocol.rto_estimator
+        timer = self.socket.protocol.retransmission_timer
+        rto_estimator.rto = fake_rto
+        thread_count = threading.active_count()
+        # Send some data. This will enqueue the packet.
+        self.socket.send(data)
+        self.receive()
+        # Now remove it from rqueue. This is quite ugly but it has to
+        # be done this way.
+        snd_una = self.socket.protocol.control_block.get_snd_una()
+        snd_nxt = self.socket.protocol.control_block.get_snd_nxt()
+        rqueue.remove_acknowledged_by(ack_packet, snd_una, snd_nxt)
+        
+        self.assertTrue(rqueue.empty())
+        self.assertTrue(timer.is_running())
+        
+        # Wait until timer expires.
+        time.sleep(2*fake_rto*CLOCK_TICK)
+        
+        # Check that we have the same number of threads (if the packet sender
+        # crashed, it will be less).
+        self.assertEquals(thread_count, threading.active_count())
     
     def test_retransmitted_packet_not_used_for_estimating_rto_1(self):
-        # Escenario: un paquete se envìa y se retransmite inmediatamente,
-        # y el ACK viene después.
+        # Scenario: a packet is transmitted and retransmitted immediately,
+        # and the ACK comes after.
         size = 10
         data = self.DEFAULT_DATA[:size]
         ack_number = self.DEFAULT_ISS + size
@@ -181,13 +215,13 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
         self.send(ack_packet)
         new_rto = rto_estimator.get_current_rto()
 
-        # Ambos RTOs deberían coincidir dado que el ACK llegó despues de la
-        # retransmisión del paquete.
+        # Both RTOs should match, since the ACK arrived after the
+        # retransmission of the packet.
         self.assertEquals(first_rto, new_rto)
         
     def test_retransmitted_packet_not_used_for_estimating_rto_2(self):
-        # Escenario: se transmiten dos paquetes. El primero se reconoce,
-        # mientras que el segundo se retransmite y se reconoce luego.
+        # Scenario: two packets are transmitted. The first one is ACKed,
+        # but the second one is retransmitted and ACKed after.
         size = 5
         data = self.DEFAULT_DATA[:size]
         ack_number1 = self.DEFAULT_ISS + size
@@ -205,7 +239,7 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
         self.receive()
         self.socket.send(data)
         self.receive()
-        # Reconocer el primer paquete pero no el segundo.
+        # ACK the first packet but not the second one.
         self.send(ack_packet1)
         self.wait_until_retransmission_timer_expires()
         self.receive()
@@ -213,8 +247,8 @@ class RetransmissionTest(ConnectedSocketTestCase, RetransmissionTestMixin):
         self.send(ack_packet2)        
         new_rto = rto_estimator.get_current_rto()
 
-        # Ambos RTOs deberían coincidir dado que el ACK llegó despues de la
-        # retransmisión del segundo paquete.
+        # Both RTOs should match, since the ACK arrived after the
+        # retransmission of the second packet.
         self.assertEquals(first_rto, new_rto)        
         
 
