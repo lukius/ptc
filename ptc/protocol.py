@@ -40,6 +40,7 @@ class PTCProtocol(object):
         self.ticks = 0
         self.retransmissions = 0
         self.close_mode = NO_WAIT
+        self.connected_event = threading.Event()
         self.close_event = threading.Event()
         self.initialize_threads()
         self.initialize_timers()
@@ -70,6 +71,7 @@ class PTCProtocol(object):
         
     def set_state(self, state):
         self.state = state
+        
         if state == CLOSED or\
            (self.close_mode == NO_WAIT and state == FIN_WAIT2):
             # Signal this event when the connection is completely closed or
@@ -77,6 +79,13 @@ class PTCProtocol(object):
             # party to close also. By default, this behavior resembles TCP
             # (i.e., asymmetric close).
             self.close_event.set()
+        
+        if state == CLOSED and self.control_block is not None:
+            # If someone is blocked in a recv, and the connection gets closed
+            # for any reason, this notification will interrupt the call and
+            # immediately after a PTCError will be raised.
+            self.control_block.in_buffer.notify()
+            
         if state == ESTABLISHED:
             self.connected_event.set()
     
@@ -151,7 +160,6 @@ class PTCProtocol(object):
         self.set_state(LISTEN)
         
     def connect_to(self, address, port):
-        self.connected_event = threading.Event()
         self.set_destination_on_packet_builder(address, port)
         self.start_threads()
         
@@ -165,7 +173,6 @@ class PTCProtocol(object):
     def accept(self):
         if self.state != LISTEN:
             raise PTCError('should listen first')
-        self.connected_event = threading.Event()
         self.start_threads()
         # Wait until client attempts to connect.
         self.connected_event.wait()        
@@ -179,10 +186,11 @@ class PTCProtocol(object):
         
     def receive(self, size):
         data = self.control_block.from_in_buffer(size)
-        updated_rcv_wnd = self.control_block.get_rcv_wnd()
-        if updated_rcv_wnd > 0:
-            wnd_packet = self.build_packet(window=updated_rcv_wnd)
-            self.socket.send(wnd_packet)
+        if data:
+            updated_rcv_wnd = self.control_block.get_rcv_wnd()
+            if updated_rcv_wnd > 0:
+                wnd_packet = self.build_packet(window=updated_rcv_wnd)
+                self.socket.send(wnd_packet)
         return data
 
     def get_ticks(self):

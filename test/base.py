@@ -226,44 +226,52 @@ class PTCTestCase(unittest.TestCase):
         return ptc_socket        
         
 
-class ConnectedSocketTestCase(PTCTestCase):
+class ConnectedSocket(ptc.Socket):
     
+    DEFAULT_SRC_ADDRESS = PTCTestCase.DEFAULT_SRC_ADDRESS
+    DEFAULT_SRC_PORT = PTCTestCase.DEFAULT_SRC_PORT
+    DEFAULT_DST_ADDRESS = PTCTestCase.DEFAULT_DST_ADDRESS
+    DEFAULT_DST_PORT = PTCTestCase.DEFAULT_DST_PORT    
     DEFAULT_ISS = ptc.seqnum.SequenceNumber(20)
     DEFAULT_IRS = ptc.seqnum.SequenceNumber(10)
     DEFAULT_IW = 10
+
+    def __init__(self, *args, **kwargs):
+        ptc.Socket.__init__(self)
+        self.initialize_from(*args, **kwargs)
+        
+    def initialize_from(self, src_address=DEFAULT_DST_ADDRESS,
+                              src_port=DEFAULT_DST_PORT,
+                              dst_address=DEFAULT_SRC_ADDRESS,
+                              dst_port=DEFAULT_SRC_PORT,
+                              iss=DEFAULT_ISS,
+                              irs=DEFAULT_IRS,
+                              send_window=DEFAULT_IW,
+                              receive_window=DEFAULT_IW):
+        self.bind((src_address, src_port))
+        self.protocol.start_threads()
+        self.protocol.state = ptc.constants.ESTABLISHED
+        control_block = ptc.cblock.PTCControlBlock(iss, irs, send_window,
+                                                   receive_window)
+        self.protocol.control_block = control_block
+        self.protocol.packet_handler.control_block = control_block
+        self.protocol.set_destination_on_packet_builder(dst_address, dst_port)        
+
+
+class ConnectedSocketTestCase(PTCTestCase):
+
+    DEFAULT_ISS = ConnectedSocket.DEFAULT_ISS
+    DEFAULT_IRS = ConnectedSocket.DEFAULT_IRS
+    DEFAULT_IW = ConnectedSocket.DEFAULT_IW
     DEFAULT_DATA = 'data' * 5
     DEFAULT_TIMEOUT = 1
-    
+
     def set_up(self):
-        src_address, src_port = self.DEFAULT_DST_ADDRESS, self.DEFAULT_DST_PORT
-        dst_address, dst_port = self.DEFAULT_SRC_ADDRESS, self.DEFAULT_SRC_PORT
-        self.socket = self.get_connected_socket(src_address=src_address,
-                                                src_port=src_port,
-                                                dst_address=dst_address,
-                                                dst_port=dst_port,
-                                                iss=self.DEFAULT_ISS,
-                                                irs=self.DEFAULT_IRS,
-                                                send_window=self.DEFAULT_IW,
-                                                receive_window=self.DEFAULT_IW)
+        self.socket = ConnectedSocket()
         
     def tear_down(self):
-        self.socket.protocol.free()    
+        self.socket.free()    
 
-    def get_connected_socket(self, src_address, src_port, dst_address,
-                             dst_port, iss, irs, send_window, receive_window):
-        ptc_socket = ptc.Socket()
-        ptc_socket.bind((src_address, src_port))
-        ptc_socket.protocol.start_threads()
-        ptc_socket.protocol.state = ptc.constants.ESTABLISHED
-        ptc_socket.protocol.connected_event = threading.Event()
-        control_block = ptc.protocol.PTCControlBlock(iss, irs, send_window,
-                                                     receive_window)
-        ptc_socket.protocol.control_block = control_block
-        ptc_socket.protocol.packet_handler.control_block = control_block
-        ptc_socket.protocol.set_destination_on_packet_builder(dst_address,
-                                                              dst_port)
-        return ptc_socket        
-    
 
 class Network(object):
     

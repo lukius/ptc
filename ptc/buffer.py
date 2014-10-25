@@ -11,11 +11,16 @@ class DataBuffer(object):
         self.start_index = start_index
         self.last_index = start_index
         
+    def notify(self):
+        with self.condition:
+            self.condition.notifyAll()
+        
     def flush(self):
         with self.condition:
             self.buffer = str()
             self.chunks = dict()
             self.last_index = self.start_index
+            self.notify()
         
     def get_last_index(self):
         return self.last_index
@@ -39,7 +44,7 @@ class DataBuffer(object):
             self.buffer += data
             self.last_index += len(data)
             self.merge_chunks()
-            self.condition.notifyAll()
+            self.notify()
             
     def add_chunk(self, start, data):
         with self.condition:

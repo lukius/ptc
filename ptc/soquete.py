@@ -9,7 +9,8 @@ class Soquete(object):
     MAX_SIZE = 65535
     
     def __init__(self):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, PROTOCOL_NUMBER)
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_RAW,
+                                    PROTOCOL_NUMBER)
         self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
         
     def close(self):
@@ -42,4 +43,5 @@ class Soquete(object):
     def is_for_me(self, packet):
         address = packet.get_destination_ip()
         port = packet.get_destination_port()
-        return (self.address == NULL_ADDRESS or address == self.address) and port == self.port
+        return (self.address == NULL_ADDRESS or address == self.address) and\
+                port == self.port
