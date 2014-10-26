@@ -14,6 +14,8 @@ class PTCControlBlock(object):
         self.rcv_wnd = receive_window
         self.snd_wl1 = receive_seq.clone()
         self.snd_wl2 = send_seq.clone()
+        self.iss = send_seq.clone()
+        self.irs = receive_seq.clone()
         self.in_buffer = DataBuffer(start_index=receive_seq.clone())
         self.out_buffer = DataBuffer(start_index=send_seq.clone())
         self.lock = threading.RLock()
@@ -50,7 +52,28 @@ class PTCControlBlock(object):
     def increment_rcv_nxt(self):
         with self:
             self.rcv_nxt += 1
+            
+    def leq_leq(self, a, b, c):
+        return SequenceNumber.a_leq_b_leq_c(a, b, c)
+    
+    def leq_lt(self, a, b, c):
+        return SequenceNumber.a_leq_b_lt_c(a, b, c)
+    
+    def lt_leq(self, a, b, c):
+        return SequenceNumber.a_lt_b_leq_c(a, b, c)
         
+    def truncate_lo(self, seq_number):
+        if self.leq_leq(self.rcv_nxt, seq_number, self.rcv_nxt+self.rcv_wnd):
+            return seq_number
+        else:
+            return self.rcv_nxt
+
+    def truncate_hi(self, seq_number):
+        if self.leq_leq(self.rcv_nxt, seq_number, self.rcv_nxt+self.rcv_wnd):
+            return seq_number
+        else:
+            return self.rcv_nxt+self.rcv_wnd
+
     def process_incoming(self, packet, ignore_payload=False):
         self.process_ack(packet)
         if not ignore_payload:
@@ -60,8 +83,10 @@ class PTCControlBlock(object):
         if self.payload_is_accepted(packet):
             seq_lo, seq_hi = packet.get_seq_interval()
             payload = packet.get_payload()
-            lower = max(self.rcv_nxt, seq_lo)
-            upper = min(self.rcv_nxt + self.rcv_wnd, seq_hi)
+            # Lower and upper limits of the payload lying inside the receive
+            # window.
+            lower = self.truncate_lo(seq_lo)
+            upper = self.truncate_hi(seq_hi)
             # Honor RCV_WND by dropping those bytes that go below it
             # or beyond it.
             effective_payload = payload[lower-seq_lo:upper-seq_lo]
@@ -83,29 +108,41 @@ class PTCControlBlock(object):
         
     def ack_is_accepted(self, ack_number):
         # Accept only if  SND_UNA < ACK <= SND_NXT
-        return SequenceNumber.a_lt_b_leq_c(self.snd_una, ack_number,
-                                           self.snd_nxt)
+        return self.lt_leq(self.snd_una, ack_number, self.snd_nxt)
     
     def payload_is_accepted(self, packet):
         seq_lo, seq_hi = packet.get_seq_interval()
         first_byte, last_byte = seq_lo, seq_hi-1
-        first_ok = SequenceNumber.a_leq_b_leq_c(self.rcv_nxt,
-                                                first_byte,
-                                                self.rcv_nxt+self.rcv_wnd)
-        last_ok = SequenceNumber.a_leq_b_leq_c(self.rcv_nxt, last_byte,
-                                               self.rcv_nxt+self.rcv_wnd)
-        return last_byte >= first_byte and (first_ok or last_ok)
-    
+        first_ok = self.leq_leq(self.rcv_nxt, first_byte,
+                                self.rcv_nxt+self.rcv_wnd)
+        last_ok = self.leq_leq(self.rcv_nxt, last_byte,
+                               self.rcv_nxt+self.rcv_wnd)
+        # Accept payload if it has non-null intersection with the receive
+        # window. In other words, first_ok or last_ok should be true.
+        # Also, we must check that first_byte < last_byte. The following
+        # does this comparison in such a way that wrappeda-around values are
+        # properly compared:
+        if first_ok:
+            return self.leq_leq(self.rcv_nxt, first_byte, last_byte)
+        elif last_ok:
+            return self.leq_leq(first_byte, self.rcv_nxt, last_byte)
+        else:
+            return False
+
     def should_update_window(self, ack_number):
         # RFC 1122, p.94 (correction to RFC 793).
-        return SequenceNumber.a_leq_b_leq_c(self.snd_una, ack_number,
-                                            self.snd_nxt)
+        return self.leq_leq(self.snd_una, ack_number, self.snd_nxt)
     
     def update_window(self, packet):
         seq_number = packet.get_seq_number()
         ack_number = packet.get_ack_number()
-        if self.snd_wl1 < seq_number or \
-           (self.snd_wl1 == seq_number and self.snd_wl2 <= ack_number):
+        # Update SND_WND if this packet brings "newer" information. This is
+        # found out by comparing SND_WL1 with SEG_SEQ and SND_WL2 with
+        # SEG_ACK (this comparisons are performed with leq_leq and leq_lt
+        # in order to behave properly with wrapped-around values). 
+        if self.leq_lt(self.iss, self.snd_wl1, seq_number) or\
+           (self.snd_wl1 == seq_number and\
+            self.leq_leq(self.irs, self.snd_wl2, ack_number)):
             self.snd_wnd = packet.get_window_size()
             self.snd_wl1 = seq_number
             self.snd_wl2 = ack_number
@@ -113,8 +150,7 @@ class PTCControlBlock(object):
     def usable_window_size(self):
         upper_limit = self.snd_una + self.snd_wnd
         # If the upper window limit is below SND_NXT, we must return 0.
-        if SequenceNumber.a_leq_b_leq_c(self.snd_una, self.snd_nxt,
-                                        upper_limit):
+        if self.leq_leq(self.snd_una, self.snd_nxt, upper_limit):
             return upper_limit - self.snd_nxt
         else:
             return 0

@@ -1,5 +1,7 @@
 import threading
 
+from ptc.seqnum import SequenceNumber
+
 
 class DataBuffer(object):
     
@@ -48,7 +50,8 @@ class DataBuffer(object):
             
     def add_chunk(self, start, data):
         with self.condition:
-            if start <= self.last_index:
+            if SequenceNumber.a_leq_b_leq_c(self.start_index, start,
+                                            self.last_index):
                 offset = self.last_index - start
                 self.put(data[offset:])
             else:
@@ -59,7 +62,7 @@ class DataBuffer(object):
         for start in indices:
             data = self.chunks[start]
             end = start + len(data)
-            if start <= self.last_index and end > self.last_index:
+            if SequenceNumber.a_leq_b_lt_c(start, self.last_index, end):
                 offset = self.last_index - start
                 self.buffer += data[offset:]
                 self.last_index = end

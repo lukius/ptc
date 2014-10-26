@@ -7,7 +7,8 @@ class SequenceNumber(object):
 
     @classmethod  
     def validate_moduli(cls, a, b):
-        if a.modulus != b.modulus:
+        if isinstance(a, cls) and isinstance(b, cls) and\
+           a.modulus != b.modulus:
             raise Exception    
     
     @classmethod
