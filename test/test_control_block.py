@@ -85,6 +85,21 @@ class ControlBlockTest(PTCTestCase):
         self.assertEquals(snd_una + self.DEFAULT_IW, snd_nxt)
         self.assertEquals(0, usable_window_size)
         self.assertEquals(self.DEFAULT_IW, len(to_send))
+        
+    def test_null_usable_window_when_window_upper_limit_is_below_snd_nxt(self):
+        # This test covers the scenario where a window update shrunk the
+        # send window, and thus SND_UNA + SND_WND < SND_NXT. Naturally, we
+        # cannot send anything here, and so the usable window must be 0.
+        self.control_block.snd_nxt += self.DEFAULT_IW/2
+        self.control_block.snd_wnd = 1
+        
+        snd_una = self.control_block.get_snd_una()
+        snd_nxt = self.control_block.get_snd_nxt()
+        snd_wnd = self.control_block.get_snd_wnd()
+        self.assertLess(snd_una + snd_wnd, snd_nxt)
+                
+        usable_window_size = self.control_block.usable_window_size()
+        self.assertEquals(0, usable_window_size)
 
     def test_reception_of_valid_ack(self):
         size = 100
@@ -175,6 +190,24 @@ class ControlBlockTest(PTCTestCase):
         self.assertEquals(new_window, snd_wnd)
         self.assertEquals(self.DEFAULT_IRS, snd_wl1)
         self.assertEquals(ack_number, snd_wl2)
+        
+    def test_snd_wnd_updated_when_ack_equals_snd_una(self):
+        # This test covers the scenario where a window update is received
+        # and the ACK provided equals SND_UNA. RFC 793 explicitly forbids
+        # this, but a correction was later introduced on RFC 1122 (page 94).
+        size = 100
+        self.control_block.snd_una += size
+        new_window = self.DEFAULT_IW - 200 
+        ack_number = self.control_block.get_snd_una()
+        ack_packet = self.packet_builder.build(flags=[ACKFlag],
+                                               seq=self.DEFAULT_IRS,
+                                               ack=ack_number,
+                                               window=new_window)
+        
+        self.control_block.process_incoming(ack_packet)
+        
+        snd_wnd = self.control_block.get_snd_wnd()
+        self.assertEquals(new_window, snd_wnd)
 
     def test_reception_of_new_data(self):
         size = 100
@@ -284,7 +317,7 @@ class ControlBlockTest(PTCTestCase):
         # Once this payload is consumed, RCV_WND should grow again.
         self.assertEquals(self.DEFAULT_IW, rcv_wnd)
         self.assertEquals(size, len(data))
-        self.assertEquals(data, payload)                
+        self.assertEquals(data, payload)           
         
     def test_reception_of_new_data_after_processing_contiguous_chunks(self):
         size = 100

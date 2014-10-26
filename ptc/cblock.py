@@ -97,7 +97,6 @@ class PTCControlBlock(object):
         return last_byte >= first_byte and (first_ok or last_ok)
     
     def should_update_window(self, ack_number):
-        # TODO: add tests for this.
         # RFC 1122, p.94 (correction to RFC 793).
         return SequenceNumber.a_leq_b_leq_c(self.snd_una, ack_number,
                                             self.snd_nxt)
@@ -118,7 +117,6 @@ class PTCControlBlock(object):
                                         upper_limit):
             return upper_limit - self.snd_nxt
         else:
-            # TODO: add test!
             return 0
     
     def has_data_to_send(self):
