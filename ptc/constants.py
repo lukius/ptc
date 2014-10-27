@@ -30,8 +30,6 @@ WAIT = 3    # Close gracefully and synchronized with the other party
 NO_WAIT = 4 # Close gracefully; don't wait for the other party to close
 ABORT = 5   # Close immediately; abort the connection
 
-NULL_ADDRESS = '0.0.0.0'
-
 # Size in bytes of the buffer that holds incoming data
 RECEIVE_BUFFER_SIZE = 1024
 

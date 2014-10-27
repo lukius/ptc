@@ -15,6 +15,8 @@ class PacketTest(unittest.TestCase):
     ACK_NUMBER = 10
     WINDOW_SIZE = 10000
 
+    IP_HEADER_LEN = 20
+
     def get_custom_packet(self):
         packet = PTCPacket()
         packet.set_source_ip(self.SOURCE_IP)
@@ -43,14 +45,8 @@ class PacketTest(unittest.TestCase):
         packet = self.get_custom_packet()
         packet_bytes = packet.get_bytes()
         expected_packet_bytes = self.get_expected_packet_bytes()
+        expected_packet_bytes = expected_packet_bytes[self.IP_HEADER_LEN:]
         
-        ip_id_offset = 4
-        checksum_offset = 10
-        packet_bytes = packet_bytes[:ip_id_offset] + '\0'*2 +\
-                       packet_bytes[ip_id_offset+2:]
-        packet_bytes = packet_bytes[:checksum_offset] + '\0'*2 +\
-                       packet_bytes[checksum_offset+2:]
-                                                 
         self.assertEqual(packet_bytes, expected_packet_bytes)
         
     def test_packet_from_bytes(self):
