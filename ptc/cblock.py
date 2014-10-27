@@ -120,7 +120,7 @@ class PTCControlBlock(object):
         # Accept payload if it has non-null intersection with the receive
         # window. In other words, first_ok or last_ok should be true.
         # Also, we must check that first_byte < last_byte. The following
-        # does this comparison in such a way that wrappeda-around values are
+        # does this comparison in such a way that wrapped-around values are
         # properly compared:
         if first_ok:
             return self.leq_leq(self.rcv_nxt, first_byte, last_byte)
